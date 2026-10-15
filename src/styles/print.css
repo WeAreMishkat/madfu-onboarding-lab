@@ -1,0 +1,41 @@
+/* Wireframes PDF (print route). One .pw-page = one PDF page of 1600 × 1300 px. */
+@page { size: 1600px 1300px; margin: 0; }
+.pw { background: #e9e9e9; }
+.pw-page {
+  position: relative; box-sizing: border-box; overflow: hidden; background: #fff; color: #111; padding: 44px 40px 40px;
+  display: flex; flex-direction: column; break-after: page; page-break-after: always; margin: 0 auto 24px;
+}
+@media print { .pw { background: #fff; } .pw-page { margin: 0; } }
+.pw-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; border-bottom: 2px solid #111; padding-bottom: 14px; margin-bottom: 16px; }
+.pw-section { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6b6b6b; }
+.pw-title { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; margin-top: 4px; }
+.pw-caption { font-size: 16px; color: #3d3d3d; margin-top: 6px; max-width: 1200px; }
+.pw-badge { font-size: 12px; font-weight: 700; border: 1.5px solid #111; border-radius: 4px; padding: 5px 9px; white-space: nowrap; }
+.pw-body { flex: 1; min-height: 0; }
+.pw-foot { position: absolute; left: 40px; right: 40px; bottom: 14px; display: flex; justify-content: space-between; font-size: 12px; color: #8f8f8f; }
+.pw-fit { overflow: hidden; display: flex; justify-content: center; }
+.pw-screen { transform-origin: top center; border: 1px solid #cfcfcf; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06); background: #fff; flex: none; }
+.pw-root { min-height: 0 !important; }
+.pw-root .mb-main { padding-top: 24px; padding-bottom: 28px; }
+.pw-map { overflow: hidden; border: 1px solid #dedede; border-radius: 6px; padding: 8px; }
+.pw-map .jm-svg { width: 100%; height: auto; }
+.pw-table .dt-title { display: none; }
+.pw-table table { font-size: 15px; }
+.pw-cover { justify-content: center; padding: 120px; gap: 20px; }
+.pw-cover h1 { font-size: 64px; font-weight: 800; letter-spacing: -0.02em; margin-top: 40px; }
+.pw-cover-sub { font-size: 24px; color: #3d3d3d; }
+.pw-cover-meta { margin-top: 40px; display: grid; gap: 10px; font-size: 18px; }
+.pw-cover-meta div { display: grid; grid-template-columns: 220px 1fr; }
+.pw-cover-meta dt { color: #6b6b6b; }
+.pw-cover-meta dd { margin: 0; }
+.pw-hidden { display: none; }
+.pw-principles { font-size: 22px; line-height: 1.5; display: grid; gap: 14px; padding-left: 28px; max-width: 1300px; margin-top: 20px; }
+.pw-note { font-size: 26px; line-height: 1.5; border-left: 6px solid #111; padding: 16px 28px; margin: 40px 0 24px; max-width: 1300px; }
+.pw-text { font-size: 18px; color: #3d3d3d; max-width: 1200px; }
+.pw-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; font-size: 17px; line-height: 1.5; }
+.pw-cols h3 { font-size: 20px; margin-bottom: 12px; }
+.pw-cols ul, .pw-cols ol { padding-left: 22px; display: grid; gap: 8px; }
+.pw-map + .pw-map { margin-top: 16px; }
+.pw-map-part { font-size: 13px; font-weight: 700; color: #6b6b6b; margin: 4px 6px 6px; }
+.pw-map .jm-svg { width: auto; max-width: 100%; height: auto; }
+.pw-screen { background: #fafafa; }

@@ -1,0 +1,136 @@
+/*
+ * Tabby benchmark experience. Simple white / black merchant UI with Tabby's mint as a small accent.
+ * Inspired by Tabby Merchant, not a copy. Lab annotations (.tb-labnote, .tb-demo, .tb-lab-toggle)
+ * are deliberately styled apart from the product UI.
+ */
+.theme-tabby {
+  --x-bg: #f6f6f4;
+  --x-surface: #ffffff;
+  --x-ink: #0d0d0d;
+  --x-ink-2: #3a3a3a;
+  --x-muted: #6e6e6e;
+  --x-line: #e6e6e3;
+  --x-line-strong: #cfcfcb;
+  --x-brand: #0d0d0d;
+  --x-brand-ink: #ffffff;
+  --x-accent: #3effc0;
+  --x-accent-soft: #f2f3f1;
+  --x-info-bg: #f2f3f1;
+  --x-radius: 12px;
+  --x-radius-card: 20px;
+  --x-btn-radius: 12px;
+  --x-input-h: 52px;
+  --x-card-max: 600px;
+  --x-focus: 0 0 0 3px rgba(13, 13, 13, 0.16);
+}
+
+.theme-tabby .fx-card { border: 0; box-shadow: 0 1px 2px rgba(13, 13, 13, 0.04), 0 8px 28px rgba(13, 13, 13, 0.05); }
+.theme-tabby .fx-title { font-size: 28px; letter-spacing: -0.02em; }
+.theme-tabby .fx-btn-primary { min-width: 140px; }
+.theme-tabby .fx-progress li.is-done .fx-progress-dot,
+.theme-tabby .fx-progress li.is-current .fx-progress-dot { background: var(--x-ink); }
+.theme-tabby .fx-option.is-checked { background: #fafafa; box-shadow: inset 0 0 0 1px var(--x-ink); }
+
+/* Header */
+.tb-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tb-header-region {
+  font-size: 13px; color: var(--x-ink-2); border: 1px solid var(--x-line-strong); border-radius: 999px; padding: 4px 12px; background: #fff;
+}
+
+/* Turnstile (simulated) */
+.tb-turnstile {
+  display: flex; align-items: center; gap: 10px; width: 100%; max-width: 360px; min-height: 64px; padding: 0 14px;
+  border: 1px solid #d9d9d9; border-radius: 4px; background: #fafafa; font-size: 14px; color: #232323;
+}
+.tb-turnstile.is-passed .tb-turnstile-icon { color: #1a8f4c; }
+.tb-turnstile-spin { color: #f38020; }
+.tb-turnstile-text { flex: 1; }
+.tb-turnstile-brand { font-size: 10px; color: #8a8a8a; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Code links */
+.tb-code-links { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tb-resend { border: 0; background: none; padding: 0; font-size: 14px; color: var(--x-muted); }
+
+/* Inline status */
+.tb-inline-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--x-muted); }
+.tb-un { display: flex; flex-direction: column; gap: 10px; }
+.tb-un:empty { display: none; }
+.tb-un-error { margin-top: -10px; }
+
+/* Lab note: clearly not product UI */
+.tb-labnote {
+  border: 1px dashed #b9bccb; border-radius: 10px; padding: 10px 12px; background: #fbfbfd;
+  font-family: var(--font-sans); font-size: 13px; color: var(--lab-ink-2, #3a4058);
+}
+.tb-labnote-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.tb-labnote-tag {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #4c5272;
+  background: #eceef6; border-radius: 4px; padding: 2px 6px;
+}
+.tb-labnote-title { font-weight: 600; color: var(--lab-ink, #0e1222); }
+.tb-labnote-body { display: grid; gap: 6px; }
+.tb-labnote code, .tb-demo code { font-family: var(--font-mono); font-size: 12px; background: #eef0f5; border-radius: 4px; padding: 0 4px; }
+.tb-labnote-small { font-size: 12.5px; color: var(--lab-muted, #6b7189); }
+.tb-list { margin: 0; padding-left: 18px; display: grid; gap: 3px; text-align: left; }
+.fx-center .tb-labnote { text-align: left; }
+
+/* Engine class collision: the toggle wrapper carries both .fx-field and .fx-toggle, which centres it. */
+.theme-tabby .fx-field.fx-toggle { align-items: stretch; justify-content: flex-start; }
+
+/* Lookup chain */
+.tb-chain { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+.tb-chain-node {
+  position: relative; display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
+  border: 1px solid #d8dbe6; background: #fff; border-radius: 8px; padding: 6px 8px; min-width: 0;
+}
+.tb-chain-node + .tb-chain-node::before {
+  content: '\2192'; position: absolute; left: -12px; top: 50%; transform: translateY(-50%); font-size: 12px; color: #8a90a8;
+}
+.tb-chain-node.is-unknown { border-style: dashed; }
+.tb-chain-label { font-weight: 600; font-size: 12.5px; color: var(--lab-ink, #0e1222); }
+.tb-chain-sub { font-size: 11.5px; color: var(--lab-muted, #6b7189); }
+
+/* Demo values */
+.tb-demo {
+  font-family: var(--font-sans); font-size: 12.5px; color: #4c5272; border: 1px dashed #b9bccb; border-radius: 10px;
+  padding: 8px 12px; background: #fbfbfd;
+}
+.tb-demo-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.tb-demo ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* Map placeholder */
+.tb-map {
+  position: relative; height: 170px; border-radius: var(--x-radius); overflow: hidden; border: 1px solid var(--x-line-strong);
+  background: linear-gradient(135deg, #eef1ec 0%, #e4ebe6 100%);
+}
+.tb-map-grid {
+  position: absolute; inset: 0; opacity: 0.6;
+  background-image: linear-gradient(#d5dbd3 1px, transparent 1px), linear-gradient(90deg, #d5dbd3 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.tb-map-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -90%); }
+.tb-map-caption {
+  position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--x-ink-2); background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px; padding: 2px 8px;
+}
+
+/* Read-only value (bank currency) */
+.tb-static {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--x-input-h);
+  padding: 0 14px; border: 1px solid var(--x-line); border-radius: var(--x-radius); background: var(--x-accent-soft);
+}
+.tb-static-label { font-size: 14px; color: var(--x-muted); }
+.tb-static-value { font-size: 15px; font-weight: 600; color: var(--x-ink); }
+
+/* Lab control on review */
+.tb-lab-toggle {
+  display: flex; gap: 10px; align-items: flex-start; font-family: var(--font-sans); font-size: 13px; color: #4c5272;
+  border: 1px dashed #b9bccb; border-radius: 10px; padding: 10px 12px; background: #fbfbfd; cursor: pointer;
+}
+.tb-lab-toggle input { margin-top: 2px; width: 16px; height: 16px; flex: none; }
+
+@media (max-width: 640px) {
+  .theme-tabby .fx-title { font-size: 23px; }
+  .tb-chain { grid-template-columns: 1fr; gap: 16px; }
+  .tb-chain-node + .tb-chain-node::before { content: '\2193'; left: 12px; top: -15px; transform: none; }
+}

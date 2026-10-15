@@ -1,0 +1,92 @@
+/*
+ * Tamara Business theme: simple white header with the wordmark, a calm off-white page and one
+ * focused form card with dark primary buttons. Inspired by, not copied from, partners.tamara.co.
+ */
+.theme-tamara {
+  --x-bg: #f7f7f8;
+  --x-surface: #ffffff;
+  --x-ink: #111111;
+  --x-ink-2: #3c3c43;
+  --x-muted: #6e6e76;
+  --x-line: #e7e7ea;
+  --x-line-strong: #cfcfd5;
+  --x-brand: #111111;
+  --x-brand-ink: #ffffff;
+  --x-accent: #8f6cf0;
+  --x-accent-soft: #f4f2fb;
+  --x-info-bg: #f3f1fc;
+  --x-radius: 12px;
+  --x-radius-card: 20px;
+  --x-btn-radius: 999px;
+  --x-input-h: 50px;
+  --x-card-max: 600px;
+  --x-focus: 0 0 0 3px rgba(143, 108, 240, 0.25);
+}
+
+/* Header: wordmark + "Business", language switch on the right */
+.theme-tamara .fx-header {
+  background: #ffffff;
+  border: 1px solid var(--x-line);
+  border-radius: 14px;
+  padding: 14px 18px;
+}
+.tm-header { display: flex; align-items: center; gap: 8px; }
+.tm-header-business { font-weight: 600; font-size: 16px; color: var(--x-ink); letter-spacing: -0.01em; }
+.tm-header-spacer { flex: 1; }
+.tm-header-lang { font-family: var(--font-ar); font-size: 14px; color: var(--x-ink-2); }
+
+.theme-tamara .fx-card { box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04); }
+.theme-tamara .fx-title { font-size: 24px; letter-spacing: -0.02em; }
+.theme-tamara .fx-btn-primary { min-width: 140px; }
+.theme-tamara .fx-progress li.is-current .fx-progress-dot,
+.theme-tamara .fx-progress li.is-done .fx-progress-dot {
+  background: linear-gradient(90deg, #f5a46b 0%, #ec6b8c 50%, #8f6cf0 100%);
+}
+
+/* Inline verify controls */
+.tm-verify { display: flex; flex-direction: column; gap: 8px; }
+.tm-verify-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tm-verify .fx-btn { min-height: 40px; padding: 0 18px; font-size: 14px; }
+.tm-ok { color: var(--x-success); font-size: 13px; font-weight: 600; }
+
+/* Demo values hint */
+.tm-demo {
+  border: 1px dashed var(--x-line-strong); border-radius: var(--x-radius); padding: 10px 14px;
+  font-family: var(--font-sans); font-size: 12.5px; color: var(--x-muted); background: #fcfcfd;
+}
+.tm-demo-title { font-weight: 600; color: var(--x-ink-2); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; margin-bottom: 4px; }
+.tm-demo ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* Lab note: visibly not product UI */
+.tm-labnote {
+  border-left: 3px solid var(--lab-ink-2); background: var(--lab-bg); border-radius: 8px; padding: 10px 14px;
+  font-family: var(--font-sans); font-size: 13px; color: var(--lab-ink-2);
+}
+.tm-labnote-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; color: var(--lab-ink); }
+.tm-labnote-kicker { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10.5px; font-weight: 700; color: var(--lab-muted); }
+.tm-labnote-body p + p { margin-top: 6px; }
+.tm-model { margin: 0; display: grid; gap: 6px; }
+.tm-model-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; }
+.tm-model-row dt { font-weight: 600; color: var(--lab-ink); }
+.tm-model-row dd { margin: 0; }
+
+/* Nafath wait */
+.tm-nafath { border: 1px solid var(--x-line); border-radius: var(--x-radius); padding: 16px; display: grid; gap: 8px; background: var(--x-accent-soft); }
+.tm-nafath-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tm-nafath-number {
+  justify-self: start; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  background: #fff; border: 1px solid var(--x-line-strong); border-radius: 12px; padding: 6px 18px;
+}
+.tm-sim-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.tm-sim-actions .fx-btn { min-height: 40px; font-size: 14px; }
+
+/* Reviewer reopen */
+.tm-reopen { display: grid; gap: 18px; }
+.tm-flagged .fx-input-wrap input, .tm-flagged .fx-dropzone { border-color: var(--x-warning); }
+.tm-reason { font-size: 13px; color: var(--x-warning); background: var(--x-warning-bg); border-radius: 8px; padding: 6px 10px; }
+.tm-reason-kicker { font-weight: 600; }
+
+@media (max-width: 640px) {
+  .tm-model-row { grid-template-columns: 1fr; gap: 0; }
+  .tm-sim-actions { flex-direction: column; align-items: stretch; }
+}

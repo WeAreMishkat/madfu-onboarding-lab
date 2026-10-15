@@ -1,0 +1,101 @@
+/**
+ * Typed mock adapters for the future integrations. Nothing here calls a real provider: every answer
+ * comes from the Prototype Controls (`Sim`). All values are synthetic.
+ *
+ * Provider names are deliberately neutral in the merchant UI. Which provider backs each adapter
+ * (CR enrichment, bank ownership, certificates) is a pending product decision.
+ */
+import type { Certificate, CertificatesResult, CrRecord, CrResult, IbanResult, NafathResult, Person, Sim } from './types';
+import { normaliseIban } from './config';
+
+/* ------------------------------------------------------------------ synthetic demo identities */
+
+/** The demo SMS code accepted by the simulated OTP service. */
+export const DEMO_SMS_CODE = '246810';
+
+/** Built at runtime so no national-ID-shaped literal sits in the source. */
+export const DEMO = {
+  cr: '7000000101',
+  nationalId: ['1', '000000', '201'].join(''),
+  mobile: ['5', '0000', '0012'].join('')
+};
+
+export const demoIban = (bankCode: '80' | '10' | '20', tail: string) => ['SA', '00', bankCode, '000000', '12345678', tail.padStart(4, '0').slice(-4)].join('');
+
+/* ------------------------------------------------------------------ CR verification adapter */
+
+export function crAdapter(result: CrResult): { result: CrResult; record: CrRecord | null } {
+  if (result === 'valid') return { result, record: { legalName: 'Najd Roastery Trading Company', status: 'Active', expiry: '2028-03-13', city: 'Riyadh' } };
+  if (result === 'expired') return { result, record: { legalName: 'Najd Roastery Trading Company', status: 'Expired', expiry: '2026-08-31', city: 'Riyadh' } };
+  return { result, record: null };
+}
+
+/* ------------------------------------------------------------------ associated parties adapter */
+
+const PEOPLE: Person[] = [
+  { id: 'p1', name: ['Mohammed', 'Abdullah', 'Saad', 'Al-Qahtani'], idMasked: '104••••217', kind: 'individual' },
+  { id: 'p2', name: ['Nora', 'Khalid', 'Fahad', 'Al-Shammari'], idMasked: '108••••530', kind: 'individual' },
+  { id: 'p3', name: ['Abdullah', 'Mohammed', 'Saad', 'Al-Qahtani'], idMasked: '106••••882', kind: 'individual' }
+];
+const COMPANY_PARTNER: Person = { id: 'c1', name: ['Najd', 'Holding', 'Group', 'Company'], idMasked: '700••••404', kind: 'company' };
+
+/**
+ * Returns the raw associated parties. Companies are included on purpose: the UI must filter them
+ * out because only individuals can verify with Nafath.
+ */
+export function personsAdapter(result: 'one' | 'multiple' | 'none'): Person[] {
+  if (result === 'none') return [COMPANY_PARTNER];
+  if (result === 'one') return [PEOPLE[0], COMPANY_PARTNER];
+  return [...PEOPLE, COMPANY_PARTNER];
+}
+export const eligiblePersons = (list: Person[]) => list.filter((p) => p.kind === 'individual');
+
+/** "Mohammed ••• ••• Al-Qahtani": first and last visible, second and third masked. */
+export const maskedName = (p: Person) => `${p.name[0]} ••• ••• ${p.name[3]}`;
+
+/* ------------------------------------------------------------------ Nafath adapter */
+
+export const NAFATH_NUMBERS = ['42', '17', '85', '63', '29'];
+export function nafathAdapter(sim: Sim, requestIndex: number): NafathResult {
+  const q = sim.nafath.length ? sim.nafath : ['verified' as NafathResult];
+  return q[Math.min(requestIndex, q.length - 1)];
+}
+
+/* ------------------------------------------------------------------ certificates adapter */
+
+const CERTS: Certificate[] = [
+  { id: 'fl1', number: 'FL-400000001', category: 'Creative services', subcategory: 'Graphic design', status: 'active', madfuSub: 'services-design' },
+  { id: 'fl2', number: 'FL-400000002', category: 'Creative services', subcategory: 'Photography', status: 'active', madfuSub: 'services-photo' },
+  { id: 'fl3', number: 'FL-400000003', category: 'Education', subcategory: 'Private tutoring', status: 'active', madfuSub: 'services-training' }
+];
+
+export function certificatesAdapter(result: Exclude<CertificatesResult, 'none' | 'unavailable'>): Certificate[] {
+  switch (result) {
+    case 'one': return [CERTS[0]];
+    case 'multiple': return CERTS;
+    case 'expired': return [{ ...CERTS[0], status: 'expired' }, CERTS[1]];
+    case 'inconsistent': return [{ ...CERTS[0], issue: 'inconsistent' }];
+    case 'duplicate': return [{ ...CERTS[0], issue: 'duplicate' }, CERTS[1]];
+    // Certificate activity maps to a Madfu subcategory different from the one chosen at screening.
+    case 'mismatch': return [CERTS[2]];
+  }
+}
+
+/* ------------------------------------------------------------------ bank ownership adapter */
+
+const BANKS: Record<string, string> = {
+  '05': 'Alinma Bank', '10': 'Saudi National Bank', '15': 'Bank Albilad', '20': 'Riyad Bank', '30': 'Arab National Bank',
+  '45': 'Saudi Awwal Bank', '55': 'Banque Saudi Fransi', '60': 'Bank AlJazira', '65': 'Saudi Investment Bank', '80': 'Al Rajhi Bank'
+};
+export const bankFromIban = (iban: string) => BANKS[normaliseIban(iban).slice(4, 6)] ?? 'Saudi bank';
+
+export function ibanAdapter(sim: Sim, checkIndex: number): IbanResult {
+  const q = sim.iban.length ? sim.iban : ['verified' as IbanResult];
+  return q[Math.min(checkIndex, q.length - 1)];
+}
+
+/* ------------------------------------------------------------------ ids */
+
+export function newApplicationId(seed: number): string {
+  return `APP-${String(100000 + (seed % 900000)).padStart(6, '0')}`;
+}

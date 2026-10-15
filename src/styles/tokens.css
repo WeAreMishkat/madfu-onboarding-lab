@@ -1,0 +1,66 @@
+/*
+ * Design tokens.
+ * --lab-*  : the Lab chrome (home, top bar, evidence and comparison views). Neutral, so the four
+ *            experiences inside it keep their own identity.
+ * --mb-*   : Madfu Business (proposed) design system. Brand colours from madfu.com.sa
+ *            (logo #100CA1, navy #101440, light #E8F4F9), extended with a restrained neutral scale.
+ */
+:root {
+  /* Type */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ar: 'IBM Plex Sans Arabic', 'Inter Variable', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Spacing (4px grid) */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+  --s-7: 28px; --s-8: 32px; --s-10: 40px; --s-12: 48px; --s-16: 64px;
+
+  /* Lab chrome */
+  --lab-ink: #0e1222;
+  --lab-ink-2: #3a4058;
+  --lab-muted: #6b7189;
+  --lab-line: #e2e5ee;
+  --lab-bg: #f5f6fa;
+  --lab-surface: #ffffff;
+  --lab-bar: #0b0e1d;
+  --lab-bar-ink: #e8eaf3;
+  --lab-focus: #4c6ef5;
+
+  /* Evidence status */
+  --st-observed: #0e7a4f;   --st-observed-bg: #e6f5ee;
+  --st-documented: #1d4ed8; --st-documented-bg: #e8effd;
+  --st-inferred: #9a5b00;   --st-inferred-bg: #fff3df;
+  --st-unknown: #5b6280;    --st-unknown-bg: #eef0f5;
+  --st-proposed: #100ca1;   --st-proposed-bg: #ebeafb;
+
+  /* Madfu Business */
+  --mb-brand: #100ca1;
+  --mb-brand-600: #0d0a86;
+  --mb-brand-700: #0a0868;
+  --mb-brand-50: #f0f0fd;
+  --mb-brand-100: #e3e2fb;
+  --mb-navy: #101440;
+  --mb-sky: #e8f4f9;
+  --mb-ink: #0f1430;
+  --mb-ink-2: #3b4160;
+  --mb-muted: #5f6684;
+  --mb-subtle: #8a90a8;
+  --mb-line: #dfe2ec;
+  --mb-line-strong: #c7cbdb;
+  --mb-bg: #f6f7fb;
+  --mb-surface: #ffffff;
+  --mb-success: #0e7a4f; --mb-success-bg: #e8f6ef; --mb-success-line: #b9e3cf;
+  --mb-warning: #8f5300; --mb-warning-bg: #fff5e5; --mb-warning-line: #f3d6a4;
+  --mb-error: #b42318;   --mb-error-bg: #fdeeec;   --mb-error-line: #f4c7c1;
+  --mb-info-bg: #f0f0fd; --mb-info-line: #d5d4f7;
+
+  --mb-radius-sm: 8px;
+  --mb-radius: 10px;
+  --mb-radius-lg: 14px;
+  --mb-shadow-sm: 0 1px 2px rgba(16, 20, 64, 0.06);
+  --mb-shadow: 0 1px 2px rgba(16, 20, 64, 0.05), 0 4px 16px rgba(16, 20, 64, 0.06);
+  --mb-shadow-lg: 0 12px 40px rgba(16, 20, 64, 0.14);
+  --mb-focus: 0 0 0 3px rgba(16, 12, 161, 0.22);
+
+  --t-fast: 120ms ease;
+}
