@@ -63,8 +63,8 @@ describe('one journey model across boards, prototype and docs', () => {
     expect(contract.nodes.some((n) => /plan/i.test(n.label))).toBe(false);
   });
 
-  it('the 7 open items are all marked as tasks / decisions, and the rules tables are generated', () => {
-    expect(OPEN_ITEMS).toHaveLength(7);
+  it('the 8 open items are all marked as tasks / decisions, and the rules tables are generated', () => {
+    expect(OPEN_ITEMS).toHaveLength(8);
     expect(OPEN_ITEMS.filter((o) => o.type === 'PRODUCT TASK')).toHaveLength(4);
     expect(OPEN_ITEMS.filter((o) => o.type === 'COMPLIANCE DECISION')).toHaveLength(1);
     expect(DECISION_TABLES.map((t) => t.id)).toEqual(expect.arrayContaining(['eligibility', 'government', 'activity', 'reuse', 'invalidation', 'pricing', 'contract', 'outcomes']));

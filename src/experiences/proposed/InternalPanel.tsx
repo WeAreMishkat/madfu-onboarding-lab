@@ -1,52 +1,31 @@
 import { useState, type ReactNode } from 'react';
-import { ACTIVITIES } from './model/activity';
 import { LIMITS, maskMobile } from './model/config';
 import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './model/copy';
-import { DEMO_SMS_CODE } from './model/mock';
+import { pageScenarios, reuseNote } from './model/pageScenarios';
 import { BASE_PLANS, OPTIONAL_PLANS, pct, priceFor } from './model/pricing';
-import { SCENARIOS, SCENARIO_GROUPS, scenarioById } from './model/scenarios';
-import { expireOtp, leaveSession, nafathResult, nextPaidCall, openContinueLink } from './model/state';
-import type { CertificatesResult, IbanResult, IdentityState, NafathResult, PersonsResult, Sim } from './model/types';
+import { JOURNEY_PRESETS, scenarioById } from './model/scenarios';
+import { leaveSession, nextPaidCall, openContinueLink } from './model/state';
 import { VERIFICATION_LABEL, checkViews } from './model/verifications';
 import { useProposed } from './store';
-
-const OPTIONS = {
-  identity: [['new', 'New applicant'], ['existing_merchant', 'Existing merchant account'], ['current_application', 'Saved application (same mobile)'], ['duplicate_identity', 'Application under another mobile']] as Array<[IdentityState, string]>,
-  crResult: [['found', 'Found'], ['not_found', 'Not found'], ['unavailable', 'Provider unavailable']] as Array<[Sim['cr']['result'], string]>,
-  crStatus: [['ACTIVE', 'Active'], ['EXPIRED', 'Expired'], ['SUSPENDED', 'Suspended'], ['VIOLATION', 'Government violation']] as Array<[Sim['cr']['status'], string]>,
-  crAge: [['2', '2 months'], ['3', '3 months'], ['6', '6 months'], ['26', '26 months']] as Array<[string, string]>,
-  entity: [['SAUDI', 'Saudi entity'], ['NON_SAUDI', 'Non-Saudi (extra documents later)']] as Array<[Sim['cr']['entity'], string]>,
-  address: [['VALID', 'Valid'], ['MISSING', 'Missing'], ['EXPIRED', 'Expired']] as Array<[Sim['cr']['nationalAddress'], string]>,
-  activity: [['auto', 'Matches declared category'], ...ACTIVITIES.map((a) => [a.code, a.label])] as Array<[string, string]>,
-  persons: [['one', '1 person'], ['multiple', 'Several people'], ['none', 'No eligible individual'], ['unavailable', 'Provider unavailable']] as Array<[PersonsResult, string]>,
-  nafath: [['verified', 'Verified'], ['rejected', 'Rejected'], ['timeout', 'Timeout'], ['technical', 'Technical failure']] as Array<[NafathResult, string]>,
-  certificates: [['one', 'One'], ['multiple', 'Several'], ['none', 'None'], ['unavailable', 'Unavailable'], ['expired', 'One expired'], ['duplicate', 'One already linked'], ['inconsistent', 'Inconsistent'], ['mismatch', 'Activity requires a CR']] as Array<[CertificatesResult, string]>,
-  iban: [['verified', 'Verified'], ['mismatch', 'Mismatch'], ['technical', 'Technical error']] as Array<[IbanResult, string]>
-};
-
-function Control<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<[T, string]>; onChange: (v: T) => void }) {
-  return (
-    <label className="ip-control">
-      <span>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value as T)}>
-        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-    </label>
-  );
-}
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="ip-group"><h3 className="ip-group-title">{title}</h3>{children}</section>
 );
 
-/** Prototype Controls: separate from the merchant UI. Scenarios, simulated answers, internal state and cost. */
+type Tab = 'step' | 'demo' | 'internal';
+
+/**
+ * Prototype Controls (not merchant UI), three separate areas:
+ * - This step: Page Scenarios — only what can happen on the current screen.
+ * - Start demo: full-journey starting points and received Continue links.
+ * - Internal view: hidden backend state (reuse, calls, eligibility, flags, pricing, rule version).
+ */
 export function InternalPanel({ onClose }: { onClose: () => void }) {
   const { state, apply, replace } = useProposed();
-  const [tab, setTab] = useState<'scenarios' | 'simulate' | 'internal'>('scenarios');
-  const { app, sim, backend } = state;
-  const current = scenarioById(state.scenarioId);
-  const setSim = (patch: Partial<Sim>) => apply((s) => ({ ...s, sim: { ...s.sim, ...patch } }));
-  const setCr = (patch: Partial<Sim['cr']>) => apply((s) => ({ ...s, sim: { ...s.sim, cr: { ...s.sim.cr, ...patch } } }));
+  const [tab, setTab] = useState<Tab>('step');
+  const { app, backend } = state;
+  const { page, groups } = pageScenarios(state);
+  const note = reuseNote(state);
   const e = app.eligibility;
   const links = backend.sms.filter((m) => m.kind === 'continue-link').slice().reverse();
   const otpLine = app.sessionMobile ? 'Verified for this session' : app.id ? 'OTP required (new session)' : 'Not verified yet';
@@ -63,81 +42,77 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
-      <div className="ip-route">
-        <div className="ip-route-row"><span>{app.id ? 'Application' : 'Qualification'}</span><code>{app.id ?? app.qualificationId}</code></div>
-        <div className="ip-route-row"><span>Internal status</span><code>{app.status}</code></div>
-        <p className="ip-route-label">{STATUS_LABEL[app.status]}</p>
-        {e && <div className="ip-route-row"><span>Eligibility</span><code>{e.result} · {e.ruleId}</code></div>}
-      </div>
-
       <div className="ip-tabs" role="tablist" aria-label="Prototype Controls sections">
-        {(['scenarios', 'simulate', 'internal'] as const).map((t) => (
+        {(['step', 'demo', 'internal'] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ip-tab ${tab === t ? 'is-active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'scenarios' ? 'Scenarios' : t === 'simulate' ? 'Simulate' : 'Internal state'}
+            {t === 'step' ? 'This step' : t === 'demo' ? 'Start demo' : 'Internal view'}
           </button>
         ))}
       </div>
 
-      {tab === 'scenarios' && (
-        <div className="ip-body" role="tabpanel" aria-label="Scenarios">
-          {current && <div className="ip-current"><p className="ip-current-label">{current.label}</p><p className="ip-current-hint">{current.hint}</p></div>}
-          {SCENARIO_GROUPS.map((g) => {
-            const list = SCENARIOS.filter((s) => s.group === g);
-            return (
-              <section key={g} className="ip-group">
-                <h3 className="ip-group-title">{g} <span>{list.length}</span></h3>
-                <div className="ip-scenarios">
-                  {list.map((s) => (
-                    <button key={s.id} type="button" className={`ip-scenario ${state.scenarioId === s.id ? 'is-active' : ''}`} aria-pressed={state.scenarioId === s.id}
-                      onClick={() => replace(s.build())}>
-                      <span className="ip-scenario-n">{s.n ?? '+'}</span>{s.label}
+      {tab === 'step' && (
+        <div className="ip-body" role="tabpanel" aria-label="Page Scenarios">
+          <div className="ip-current">
+            <p className="ip-eyebrow">Page Scenarios</p>
+            <p className="ip-current-label">{page.title}</p>
+            <p className="ip-current-hint">{page.intro}</p>
+            {page.integrations.length > 0 && <p className="ip-foot">Simulates: {page.integrations.join(' · ')}</p>}
+          </div>
+          {note && <p className="ip-next-call" role="status">{note}</p>}
+          {groups.map((g) => (
+            <section key={g.title} className="ip-group" aria-label={g.title}>
+              <h3 className="ip-group-title">{g.title}</h3>
+              {g.note && <p className="ip-note">{g.note}</p>}
+              <div className="ip-scenarios">
+                {g.options.map((o) => {
+                  const on = o.current?.(state) ?? false;
+                  return (
+                    <button key={o.id} type="button" className={`ip-scenario ${on ? 'is-active' : ''}`} aria-pressed={o.current ? on : undefined} onClick={() => apply(o.run)}>
+                      {o.label}
                     </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-          <p className="ip-foot">1–60 follow the required scenario list; + marks extra scenarios. Demo SMS code {DEMO_SMS_CODE}.</p>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+          {groups.length === 0 && !note && <p className="ip-note">Nothing to simulate on this screen. Continue in the prototype.</p>}
         </div>
       )}
 
-      {tab === 'simulate' && (
-        <div className="ip-body" role="tabpanel" aria-label="Simulate">
-          {app.step === 'otp' && (
-            <Section title="SMS code">
-              <p className="ip-note">Demo code <code className="ip-code">{DEMO_SMS_CODE}</code>. Any other code is incorrect ({LIMITS.otpAttempts} attempts).</p>
-              <div className="ip-sim-btns"><button type="button" onClick={() => apply(expireOtp)}>Expire code</button></div>
-            </Section>
-          )}
-          {app.step === 'nafath' && app.nafath.status === 'waiting' && (
-            <div className="ip-sim">
-              <p className="ip-sim-title">Answer the Nafath request now</p>
-              <div className="ip-sim-btns">
-                {OPTIONS.nafath.map(([v, l]) => <button key={v} type="button" onClick={() => apply((s) => nafathResult(s, v))}>{l}</button>)}
-              </div>
+      {tab === 'demo' && (
+        <div className="ip-body" role="tabpanel" aria-label="Start demo">
+          <Section title="Journey overview">
+            <div className="ip-scenarios">
+              {JOURNEY_PRESETS.map((p) => (
+                <button key={p.id} type="button" className={`ip-scenario ${state.scenarioId === p.id ? 'is-active' : ''}`} title={p.hint} onClick={() => replace(scenarioById(p.id)!.build())}>
+                  {p.label}
+                </button>
+              ))}
             </div>
-          )}
-          <Section title="Simulated providers">
-            <div className="ip-controls">
-              <Control label="Identity check" value={sim.identity} options={OPTIONS.identity} onChange={(v) => setSim({ identity: v })} />
-              <Control label="CR retrieval" value={sim.cr.result} options={OPTIONS.crResult} onChange={(v) => setCr({ result: v })} />
-              <Control label="CR status" value={sim.cr.status} options={OPTIONS.crStatus} onChange={(v) => setCr({ status: v })} />
-              <Control label="CR age" value={String(sim.cr.issuedMonthsAgo)} options={OPTIONS.crAge} onChange={(v) => setCr({ issuedMonthsAgo: Number(v) })} />
-              <Control label="Legal entity" value={sim.cr.entity} options={OPTIONS.entity} onChange={(v) => setCr({ entity: v })} />
-              <Control label="National Address" value={sim.cr.nationalAddress} options={OPTIONS.address} onChange={(v) => setCr({ nationalAddress: v })} />
-              <Control label="Registered activity" value={sim.cr.activity} options={OPTIONS.activity} onChange={(v) => setCr({ activity: v })} />
-              <Control label="Authorised people" value={sim.persons} options={OPTIONS.persons} onChange={(v) => setSim({ persons: v })} />
-              <Control label="Next Nafath answer" value={sim.nafath[0]} options={OPTIONS.nafath} onChange={(v) => setSim({ nafath: [v] })} />
-              <Control label="Freelancer certificates" value={sim.certificates} options={OPTIONS.certificates} onChange={(v) => setSim({ certificates: v })} />
-              <Control label="Next IBAN check" value={sim.iban[0]} options={OPTIONS.iban} onChange={(v) => setSim({ iban: [v] })} />
-            </div>
-            <p className="ip-foot">Changes apply to the next NEW call. Stored results are reused and do not call the provider again.</p>
+            <p className="ip-foot">Inside a screen, use This step: it shows only what can happen there.</p>
+          </Section>
+          <Section title="Continue links received (simulated SMS)">
+            {links.length ? (
+              <ul className="ip-sms">
+                {links.map((m) => (
+                  <li key={m.token}>
+                    <span>To {maskMobile(m.to)} · {m.text}</span>
+                    <button type="button" onClick={() => apply((s) => openContinueLink(leaveSession(s), m.token!))}>Open Continue link (new session)</button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="ip-note">None yet. Use Save &amp; exit after the code to send one.</p>}
           </Section>
         </div>
       )}
 
       {tab === 'internal' && (
-        <div className="ip-body" role="tabpanel" aria-label="Internal state">
+        <div className="ip-body" role="tabpanel" aria-label="Internal view">
+          <div className="ip-route">
+            <div className="ip-route-row"><span>{app.id ? 'Application' : 'Qualification'}</span><code>{app.id ?? app.qualificationId}</code></div>
+            <div className="ip-route-row"><span>Internal status</span><code>{app.status}</code></div>
+            <p className="ip-route-label">{STATUS_LABEL[app.status]}</p>
+          </div>
           <Section title="External checks (cost view)">
             <ul className="ip-checks">
               {checkViews(app).map((c) => (
@@ -172,18 +147,6 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
           </Section>
           <Section title="Internal flags">
             {app.flags.length ? <ul className="ip-flags">{app.flags.map((f) => <li key={f}><code>{f}</code> {FLAG_LABEL[f]}</li>)}</ul> : <p className="ip-note">None.</p>}
-          </Section>
-          <Section title="Simulated SMS (Continue links)">
-            {links.length ? (
-              <ul className="ip-sms">
-                {links.map((m) => (
-                  <li key={m.token}>
-                    <span>To {maskMobile(m.to)} · {m.text}</span>
-                    <button type="button" onClick={() => apply((s) => openContinueLink(leaveSession(s), m.token!))}>Open Continue link (new session)</button>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="ip-note">None yet. Use Save &amp; exit after the code to send one.</p>}
           </Section>
           <Section title="Ledger (latest)">
             <ul className="ip-ledger">

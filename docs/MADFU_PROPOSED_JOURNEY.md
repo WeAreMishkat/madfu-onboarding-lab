@@ -75,6 +75,7 @@ Government data is retrieved once and reused. CR 3 months or younger: temporaril
 - **Select authorised person** _(screen)_ — Masked names and IDs
 - **No eligible individual** _(manual)_ — Manual authority check → Business & Banking, no contract
 - **Nafath verified** _(cached)_ — Not requested again on resume
+- **Open decision (not implemented)** _(open)_ — Handling when the OTP-verified mobile does not match the selected person’s National ID
 - **Nafath** _(external)_ — 2 attempts per application, shared
 - **Failed twice** _(manual)_ — Unverified; details collected; no contract
 - **PRODUCT TASK: Category ↔ CR activity mapping** _(open)_
@@ -353,6 +354,17 @@ These are **not confirmed rules**. The prototype implements each configurably wi
 - **COMPLIANCE DECISION — Freelancer linked IBAN before contract?.** Can a Freelancer sign the Madfu contract before the required IBAN is linked to the Freelancer Certificate? Prototype rule flag: false (least disruptive: contract allowed, banking follow-up).
 - **PRODUCT/COMMERCIAL DECISION — Optional better-pricing documents.** Which documents qualify a merchant for improved pricing. Prototype: "Revenue supporting document A / B" placeholders. Contract amendment / repricing after review also open.
 - **PRODUCT/ENGINEERING DECISION — Freshness / expiry policy for stored verifications.** CR data, people, Nafath, certificates, IBAN. Prototype: "Reusable until invalidated" (no expiry) for all.
+- **PRODUCT / COMPLIANCE DECISION — Mobile ownership vs selected authorized person.** **NOT IMPLEMENTED — DECISION REQUIRED.** Registered business: what should happen if the OTP-verified mobile number is not associated with the National ID of the CR owner / authorized person selected for Nafath? The prototype has no logic for this: it does not block, call a provider, show a message or change Nafath.
+  - Is mobile ↔ National ID ownership matching required?
+  - At what stage should it be checked?
+  - Is it regulatory, risk, or Madfu business policy?
+  - Does a mismatch block self-onboarding?
+  - Can another owner be selected?
+  - Does it route to manual verification?
+  - Can Nafath itself provide sufficient identity assurance?
+  - Which provider / data source should perform the match?
+  - Is the verification paid?
+  - Can an existing result be reused on resume?
 
 Other open points:
 
@@ -382,7 +394,30 @@ Other open points:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | … | … | … | … | … | … | … | … |
 
-## Prototype scenarios
+## Prototype Controls
+
+Three separate areas, none of them merchant UI: **This step** (Page Scenarios: only what can happen on the current screen), **Start demo** (journey presets, received Continue links) and **Internal view** (reuse / calls, eligibility, flags, pricing, rule version, ledger).
+
+Journey presets (Start demo): Happy path — registered business · Happy path — Freelancer · Sales lead · Freelancer without certificate · Resume application (Continue link) · Review & edit.
+
+### Page Scenarios per screen
+
+Generated from `model/pageScenarios.ts`; options depend on the current state (e.g. channel, applicant type). The mobile ↔ selected-owner mismatch (OD-8) is deliberately not simulated.
+
+- **Know Your Business** (None — internal eligibility rules only): Eligibility result: Eligible (registered business) / Category blocked / Category requires a CR (Freelancer) / Freelancer not allowed for the selected channel / Manual business review / Freelancer without certificate → lead / Registered business above SAR 20M → Sales lead / Category temporarily paused — Website validation: Valid website / Invalid website / Social-media URL / WhatsApp URL — Google Maps validation: Valid Google Maps URL / Invalid Maps URL
+- **Lead contact** (SMS OTP service (next)): Form: Fill demo contact details
+- **Identify & Verify** (Madfu application and merchant records (internal), SMS OTP service (next)): Identity check result: New applicant / Saved application, same mobile → resume / Application exists under another mobile / Already a Madfu merchant
+- **OTP verification** (SMS OTP service): OTP result: Verified / Incorrect code / Expired / timed out / All attempts failed — Actions: Resend code / Edit mobile number
+- **Business verification (CR)** (Government CR data (registry, activities, National Address)): CR result: Valid CR / CR 3 months old or less / Expired / Suspended / Government restriction / violation / Provider unavailable / CR not found — Non-blocking findings: National Address missing / National Address expired / Extra documents required later — Declared category ↔ registered activity: Match / Conflict / Not in the mapping
+- **Authorised person** (Government associated parties): People on the registration: One eligible person / Several eligible people / No eligible person / Government data unavailable
+- **Nafath** (Nafath): Nafath answer: Verified / Rejected / Timeout / Technical failure — Attempts: First failure — retry available / Final failed attempt → manual route
+- **Freelancer certificate** (Freelance platform (certificates)): Retrieval result: One certificate / Multiple certificates / No certificate found / Certificate expired / Certificate service unavailable / Certificate / category mismatch / Already linked to another account
+- **Business & banking details** (Bank ownership provider (IBAN)): Bank account linked to the Freelancer Certificate?: Yes → show IBAN / No / not yet → skip IBAN (banking setup required)
+- **Commercial Offer** (Pricing & Commission Matrix (mock)): Better pricing: No documents uploaded (standard commission) / Optional documents uploaded → Commercial review — Payment plans: Standard plans only (3 + 4 months)
+- **Review** (None until an edit changes a verified field): Edit: Edit Know Your Business / Edit identification / Edit business details / IBAN / Edit commercial offer
+- **Contract** (Contract acceptance (generic, provider not approved)): Contract result: Contract accepted / Contract declined
+
+## Scenario catalogue (automated test coverage)
 
 ### Know Your Business
 

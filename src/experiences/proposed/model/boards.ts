@@ -153,6 +153,7 @@ const C1: JourneyMap = {
     { id: 'pick', kind: 'screen', label: 'Select authorised person', detail: 'Masked names and IDs', col: 4, row: 1, step: 'persons' },
     { id: 'none', kind: 'manual', label: 'No eligible individual', detail: 'Manual authority check → Business & Banking, no contract', col: 4, row: 2 },
     { id: 'nafc', kind: 'cached', label: 'Nafath verified', detail: 'Not requested again on resume', col: 5, row: 0 },
+    { id: 'mobdec', kind: 'open', label: 'Open decision (not implemented)', detail: 'Handling when the OTP-verified mobile does not match the selected person’s National ID', col: 4, row: 0 },
     { id: 'naf', kind: 'external', label: 'Nafath', detail: `${LIMITS.nafathAttempts} attempts per application, shared`, col: 5, row: 1, step: 'nafath' },
     { id: 'nfail', kind: 'manual', label: 'Failed twice', detail: 'Unverified; details collected; no contract', col: 5, row: 2 },
     { id: 'next', kind: 'connector', label: `→ ${S(4)}`, col: 6, row: 1, step: 'business' },

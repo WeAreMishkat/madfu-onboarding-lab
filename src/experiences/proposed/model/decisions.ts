@@ -111,7 +111,18 @@ export const DECISION_TABLES: Table[] = [stagesTable, eligibilityRules, catalogu
 
 /* ------------------------------------------------------------------ open decisions (do not present as rules) */
 
-export interface OpenItem { id: string; type: 'PRODUCT TASK' | 'COMPLIANCE DECISION' | 'PRODUCT/COMMERCIAL DECISION' | 'PRODUCT/ENGINEERING DECISION' | 'PRODUCT DECISION'; title: string; detail: string }
+export interface OpenItem {
+  id: string;
+  type: 'PRODUCT TASK' | 'COMPLIANCE DECISION' | 'PRODUCT / COMPLIANCE DECISION' | 'PRODUCT/COMMERCIAL DECISION' | 'PRODUCT/ENGINEERING DECISION' | 'PRODUCT DECISION';
+  title: string;
+  detail: string;
+  /** Points still to clarify (shown in the docs). */
+  clarify?: string[];
+  /** Set when the prototype deliberately has NO logic for this item. */
+  notImplemented?: boolean;
+}
+
+export const NOT_IMPLEMENTED = 'NOT IMPLEMENTED — DECISION REQUIRED';
 
 export const OPEN_ITEMS: OpenItem[] = [
   { id: 'OD-1', type: 'PRODUCT TASK', title: 'Define the full Eligibility Matrix', detail: 'Category · subcategory · applicant type · sales channel · revenue band · result · CR / certificate required · manual review · regulatory restriction · reason code · rule version.' },
@@ -120,7 +131,23 @@ export const OPEN_ITEMS: OpenItem[] = [
   { id: 'OD-4', type: 'PRODUCT TASK', title: 'Complete the Onboarding Decision & Validation Inventory', detail: 'Every rule from merchant input, government CR data, National Address, freelancer data, regulation, Madfu policy, categories, CR activities / age / status, legal entity, nationality, violations, banking, sales channel. Per rule: source, field, condition, type, regulatory / business / internal, stage, blocking, user message, internal status, manual follow-up, external-call cost, version.' },
   { id: 'OD-5', type: 'COMPLIANCE DECISION', title: 'Freelancer linked IBAN before contract?', detail: `Can a Freelancer sign the Madfu contract before the required IBAN is linked to the Freelancer Certificate? Prototype rule flag: ${RULE_FLAGS.flLinkedIbanRequiredBeforeContract} (least disruptive: contract allowed, banking follow-up).` },
   { id: 'OD-6', type: 'PRODUCT/COMMERCIAL DECISION', title: 'Optional better-pricing documents', detail: 'Which documents qualify a merchant for improved pricing. Prototype: "Revenue supporting document A / B" placeholders. Contract amendment / repricing after review also open.' },
-  { id: 'OD-7', type: 'PRODUCT/ENGINEERING DECISION', title: 'Freshness / expiry policy for stored verifications', detail: 'CR data, people, Nafath, certificates, IBAN. Prototype: "Reusable until invalidated" (no expiry) for all.' }
+  { id: 'OD-7', type: 'PRODUCT/ENGINEERING DECISION', title: 'Freshness / expiry policy for stored verifications', detail: 'CR data, people, Nafath, certificates, IBAN. Prototype: "Reusable until invalidated" (no expiry) for all.' },
+  {
+    id: 'OD-8', type: 'PRODUCT / COMPLIANCE DECISION', title: 'Mobile ownership vs selected authorized person', notImplemented: true,
+    detail: 'Registered business: what should happen if the OTP-verified mobile number is not associated with the National ID of the CR owner / authorized person selected for Nafath? The prototype has no logic for this: it does not block, call a provider, show a message or change Nafath.',
+    clarify: [
+      'Is mobile ↔ National ID ownership matching required?',
+      'At what stage should it be checked?',
+      'Is it regulatory, risk, or Madfu business policy?',
+      'Does a mismatch block self-onboarding?',
+      'Can another owner be selected?',
+      'Does it route to manual verification?',
+      'Can Nafath itself provide sufficient identity assurance?',
+      'Which provider / data source should perform the match?',
+      'Is the verification paid?',
+      'Can an existing result be reused on resume?'
+    ]
+  }
 ];
 
 /** Earlier open points that remain valid. Not counted in the seven required items. */

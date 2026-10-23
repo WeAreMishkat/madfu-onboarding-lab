@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DETAILED_BOARD, NODE_KIND_LABEL, REUSE_NOTE, SIMPLE_BOARD, routeEdge, type JourneyMap, type MapNode, type NodeKind } from './model/boards';
-import { OPEN_ITEMS } from './model/decisions';
+import { NOT_IMPLEMENTED, OPEN_ITEMS } from './model/decisions';
 
 /** Node geometry: normal for the Simple board, large (room for field lists) for the Detailed panels. */
 const geo = (large?: boolean) => (large ? { COL: 262, ROW: 150, W: 214, H: 104, PAD: 28 } : { COL: 228, ROW: 132, W: 188, H: 84, PAD: 28 });
@@ -120,7 +120,12 @@ export function OpenItemsList({ compact }: { compact?: boolean }) {
   return (
     <ol className={`jm-open-list ${compact ? 'is-compact' : ''}`}>
       {OPEN_ITEMS.map((o) => (
-        <li key={o.id}><span className="jm-open-type">{o.type}</span> <strong>{o.title}</strong>{!compact && <> — {o.detail}</>}</li>
+        <li key={o.id}>
+          <span className="jm-open-type">{o.type}</span> <strong>{o.title}</strong>
+          {o.notImplemented && <> <span className="jm-open-type is-ni">{NOT_IMPLEMENTED}</span></>}
+          {!compact && <> — {o.detail}</>}
+          {!compact && o.clarify && <ul className="jm-open-clarify">{o.clarify.map((c) => <li key={c}>{c}</li>)}</ul>}
+        </li>
       ))}
     </ol>
   );

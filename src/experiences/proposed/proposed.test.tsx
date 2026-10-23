@@ -5,6 +5,8 @@ import { renderAt } from '@/test/render';
 import { STAGES } from './model/config';
 import { OUTCOME_COPY } from './model/copy';
 import { DEMO, DEMO_SMS_CODE, demoIban } from './model/mock';
+import { scenarioById } from './model/scenarios';
+import { STORE_KEY } from './store';
 
 const KYB_TITLE = 'Tell us about your business';
 
@@ -14,10 +16,13 @@ async function open(path = '/madfu/proposed') {
   return r;
 }
 
-const scenario = async (user: UserEvent, name: RegExp) => {
-  const panel = screen.getByRole('complementary', { name: 'Prototype Controls' });
-  await user.click(within(panel).getByRole('button', { name }));
-};
+/** Open the prototype at a catalogue scenario (seeded the way the app persists its state). */
+function start(id: string) {
+  window.localStorage.setItem(`mol:${STORE_KEY}`, JSON.stringify(scenarioById(id)!.build()));
+  return renderAt('/madfu/proposed');
+}
+const controls = () => screen.getByRole('complementary', { name: 'Prototype Controls' });
+const controlsTab = async (user: UserEvent, name: 'This step' | 'Start demo' | 'Internal view') => user.click(within(controls()).getByRole('tab', { name }));
 
 async function kyb(user: UserEvent, opts: { kind: 'CR' | 'FL_CERT' | 'FL_NO_CERT'; group: string; sub: string; revenue?: RegExp; channel?: RegExp; web?: string; maps?: string }) {
   await screen.findByRole('heading', { name: KYB_TITLE });
@@ -77,7 +82,8 @@ describe('Stage 1 — Know Your Business comes first', () => {
     await user.click(screen.getByRole('button', { name: 'Send code' }));
     await code(user);
     expect(await screen.findByRole('heading', { name: OUTCOME_COPY.FL_CERT_REQUIRED.title })).toBeInTheDocument();
-    expect(screen.getAllByText('LEAD_FL_CERT_REQUIRED').length).toBeGreaterThan(0);
+    await controlsTab(user, 'Internal view');
+    expect(within(controls()).getByText('LEAD_FL_CERT_REQUIRED')).toBeInTheDocument();
   });
 
   it('a Freelancer in a CR-only category is stopped before any external call', async () => {
@@ -153,25 +159,22 @@ describe('Full registered-business journey in the UI', () => {
 
 describe('Resume and verification reuse', () => {
   it('Continue link opens the code screen with context; after the code the stored checks are reused', async () => {
-    const { user } = await open();
-    await scenario(user, /Resume after Nafath verified/);
+    const { user } = start('resume-nafath');
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Business category')).toBeNull();
     await code(user);
     expect(await screen.findByRole('heading', { name: 'Business & banking details' })).toBeInTheDocument();
-    await user.click(within(screen.getByRole('complementary', { name: 'Prototype Controls' })).getByRole('tab', { name: 'Internal state' }));
+    await controlsTab(user, 'Internal view');
     expect(screen.getAllByText('Verified previously — reused, no new provider call').length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText('IBAN ownership check')).toBeInTheDocument();
   });
 
   it('Save & exit sends a Continue link; opening it asks only for the code', async () => {
-    const { user } = await open();
-    await scenario(user, /^47Add 6-month/);
+    const { user } = start('com-6');
     await user.click(await screen.findByRole('button', { name: /Save & exit/ }));
     expect(await screen.findByText(/We sent a Continue Application link/)).toBeInTheDocument();
-    const panel = screen.getByRole('complementary', { name: 'Prototype Controls' });
-    await user.click(within(panel).getByRole('tab', { name: 'Internal state' }));
-    await user.click(within(panel).getByRole('button', { name: 'Open Continue link (new session)' }));
+    await controlsTab(user, 'Start demo');
+    await user.click(within(controls()).getByRole('button', { name: 'Open Continue link (new session)' }));
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     await code(user);
     expect(await screen.findByRole('heading', { name: 'Your commercial offer' })).toBeInTheDocument();
@@ -180,8 +183,7 @@ describe('Resume and verification reuse', () => {
 
 describe('Freelancer banking and edits', () => {
   it('bank not linked to the certificate: IBAN skipped, the journey continues', async () => {
-    const { user } = await open();
-    await scenario(user, /Bank linked = No/);
+    const { user } = start('fl-bank-no');
     await user.click(await screen.findByRole('radio', { name: 'No / not yet' }));
     expect(screen.queryByLabelText('IBAN')).toBeNull();
     expect(screen.getByText(/No IBAN is needed now/)).toBeInTheDocument();
@@ -191,21 +193,18 @@ describe('Freelancer banking and edits', () => {
   });
 
   it('edit IBAN from Review invalidates only the IBAN check', async () => {
-    const { user } = await open();
-    await scenario(user, /^52Edit IBAN/);
+    const { user } = start('edit-iban');
     await user.click(await screen.findByRole('button', { name: 'Edit Business & banking' }));
     const iban = await screen.findByLabelText('IBAN');
     await user.clear(iban);
     await user.type(iban, demoIban('20', '7777'));
-    const panel = screen.getByRole('complementary', { name: 'Prototype Controls' });
-    await user.click(within(panel).getByRole('tab', { name: 'Internal state' }));
-    expect(within(panel).getByText('Invalidated: IBAN changed')).toBeInTheDocument();
-    expect(within(panel).queryAllByText(/^Invalidated:/)).toHaveLength(1);
+    await controlsTab(user, 'Internal view');
+    expect(within(controls()).getByText('Invalidated: IBAN changed')).toBeInTheDocument();
+    expect(within(controls()).queryAllByText(/^Invalidated:/)).toHaveLength(1);
   });
 
   it('contract declined can be reopened', async () => {
-    const { user } = await open();
-    await scenario(user, /Contract declined/);
+    const { user } = start('contract-decline');
     await screen.findByRole('heading', { name: 'Merchant contract' });
     await user.click(screen.getByRole('button', { name: 'Decline' }));
     const dialog = screen.getByText('Decline the contract?').closest('.mb-alert') as HTMLElement;
@@ -216,10 +215,47 @@ describe('Freelancer banking and edits', () => {
   });
 
   it('restart clears the demo', async () => {
-    const { user } = await open();
-    await scenario(user, /^11New CR application/);
+    const { user } = start('id-new-cr');
     await screen.findByRole('heading', { name: 'Good news: you can apply online' });
     await act(async () => { await user.click(screen.getByRole('button', { name: /Restart/ })); });
+    expect(await screen.findByRole('heading', { name: KYB_TITLE })).toBeInTheDocument();
+  });
+});
+
+describe('Prototype Controls: Page Scenarios per screen, Internal view separate', () => {
+  const pageOptions = () => within(screen.getByRole('tabpanel', { name: 'Page Scenarios' })).getAllByRole('button').map((b) => b.textContent ?? '');
+
+  it('OTP page shows only OTP cases; they change after navigation; Internal view is a separate tab', async () => {
+    const { user } = start('id-new-cr');
+    await screen.findByRole('heading', { name: 'Good news: you can apply online' });
+    expect(pageOptions()).toEqual(['New applicant', 'Saved application, same mobile → resume', 'Application exists under another mobile', 'Already a Madfu merchant']);
+    await user.click(screen.getByRole('button', { name: 'Send code' }));
+    await screen.findByLabelText('Verification code');
+    expect(pageOptions()).toEqual(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
+    expect(within(controls()).queryByText(/Nafath|IBAN|Category|commission|certificate/)).toBeNull();
+    await user.click(within(controls()).getByRole('button', { name: 'Incorrect code' }));
+    expect(await screen.findByText('Incorrect code. 2 attempts left.')).toBeInTheDocument();
+    await user.click(within(controls()).getByRole('button', { name: 'Verified' }));
+    await screen.findByRole('heading', { name: 'Business verification' });
+    expect(pageOptions()).toContain('CR 3 months old or less');
+    expect(pageOptions()).not.toContain('Incorrect code');
+    await controlsTab(user, 'Internal view');
+    expect(within(controls()).getByText('External checks (cost view)')).toBeInTheDocument();
+    expect(within(controls()).queryByRole('tabpanel', { name: 'Page Scenarios' })).toBeNull();
+  });
+
+  it('contract page offers only accept / decline; the global scenario list is gone from inside the journey', async () => {
+    start('contract-accept');
+    await screen.findByRole('heading', { name: 'Merchant contract' });
+    expect(pageOptions()).toEqual(['Contract accepted', 'Contract declined']);
+    expect(within(controls()).queryByText(/Add 6-month|Resume after Nafath verified/)).toBeNull();
+  });
+
+  it('Start demo holds the journey presets', async () => {
+    const { user } = start('edit-website');
+    await screen.findByRole('heading', { name: 'Review your application' });
+    await controlsTab(user, 'Start demo');
+    await user.click(within(controls()).getByRole('button', { name: 'Happy path — registered business' }));
     expect(await screen.findByRole('heading', { name: KYB_TITLE })).toBeInTheDocument();
   });
 });

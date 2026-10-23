@@ -102,20 +102,23 @@ test('Madfu Proposed: KYB-first Freelancer journey end to end in a real browser'
   await expect(page.getByRole('heading', { name: 'Your application has been submitted.' })).toBeVisible();
 });
 
-test('Prototype Controls switch scenarios; resume reuses verified checks', async ({ page }) => {
+test('Prototype Controls: Start demo preset, Page Scenarios per screen, Internal view shows reuse', async ({ page }) => {
   await page.goto('./madfu/proposed');
   const toggle = page.getByRole('button', { name: 'Prototype Controls', exact: true });
   await expect(toggle).toBeVisible();
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
   const controls = page.getByRole('complementary', { name: 'Prototype Controls' });
-  await expect(controls).toBeVisible();
-  await controls.getByRole('button', { name: /CR 3 months old or less/ }).click();
-  await expect(page.getByRole('heading', { name: 'We can’t onboard this business yet.' })).toBeVisible({ timeout: 10_000 });
-  await controls.getByRole('button', { name: /Resume with the same verified IBAN/ }).click();
+  await controls.getByRole('tab', { name: 'Start demo' }).click();
+  await controls.getByRole('button', { name: 'Resume application (Continue link)' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Verification code').fill('246810');
+  await controls.getByRole('tab', { name: 'This step' }).click();
+  const scenarios = controls.getByRole('tabpanel', { name: 'Page Scenarios' });
+  await expect(scenarios.getByRole('button')).toHaveText(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code']);
+  await scenarios.getByRole('button', { name: 'Verified' }).click();
   await expect(page.getByRole('heading', { name: 'Review your application' })).toBeVisible();
-  await controls.getByRole('tab', { name: 'Internal state' }).click();
+  await expect(scenarios.getByRole('button', { name: 'Edit Know Your Business' })).toBeVisible();
+  await expect(scenarios.getByRole('button', { name: 'Incorrect code' })).toHaveCount(0);
+  await controls.getByRole('tab', { name: 'Internal view' }).click();
   await expect(controls.getByText('Verified previously — reused, no new provider call')).toHaveCount(4);
 });
 

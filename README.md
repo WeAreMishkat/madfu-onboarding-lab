@@ -43,7 +43,7 @@ Documents, all generated from the same model and components as the app:
 - **Review** with section Edit and dependency invalidation; **Contract** only (plans shown as contract content); **Submit / Outcome** with clean user messages and internal reason codes.
 - **Resume:** Save & exit sends a Continue Application link; it opens the OTP screen; after the code the applicant lands on the first incomplete screen. Stored successful checks (CR, people, Nafath, certificates, IBAN) are reused: an ordinary resume costs one OTP.
 
-**Prototype Controls** (not merchant UI): 60 numbered scenarios plus extras, simulated provider answers, and an Internal state view showing checks reused / invalidated, the expected next paid call, flags, eligibility rule version and commercial state.
+**Prototype Controls** (not merchant UI), three separate areas: **This step** — Page Scenarios showing only what can happen on the current screen (e.g. the OTP page offers only OTP results); **Start demo** — a few full-journey presets and received Continue links; **Internal view** — checks reused / invalidated, the expected next paid call, flags, eligibility rule version and commercial state. The full scenario catalogue (60 numbered + extras) drives the automated tests and documents.
 
 All values are synthetic. Open product and compliance decisions are listed in the app (Rules & decisions) and in the generated doc.
 

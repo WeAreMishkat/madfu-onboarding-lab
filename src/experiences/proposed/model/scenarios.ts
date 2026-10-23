@@ -177,4 +177,18 @@ export const SCENARIOS: Scenario[] = [
 ];
 
 export const scenarioById = (id: string | null) => SCENARIOS.find((s) => s.id === id) ?? null;
+
+/**
+ * Full-journey starting points for the separate "Start demo" area. Inside a page, the controls are
+ * the Page Scenarios of that page only (model/pageScenarios.ts). SCENARIOS above is the complete
+ * scenario catalogue used by the automated tests, the PDF and the docs.
+ */
+export const JOURNEY_PRESETS: Array<{ id: string; label: string; hint: string }> = [
+  { id: 'submit-full', label: 'Happy path — registered business', hint: 'Know Your Business filled in. Check eligibility, then code 246810.' },
+  { id: 'x-walk-fl', label: 'Happy path — Freelancer', hint: 'Freelancer with a certificate, from Know Your Business.' },
+  { id: 'submit-lead', label: 'Sales lead', hint: 'Registered business above SAR 20M: contact + code, then the Sales thank-you.' },
+  { id: 'kyb-fl-no-cert', label: 'Freelancer without certificate', hint: 'Becomes a lead; no verification screens.' },
+  { id: 'iban-resume', label: 'Resume application (Continue link)', hint: 'Opened from the SMS link: only the code; stored checks are reused.' },
+  { id: 'edit-website', label: 'Review & edit', hint: 'A complete application at Review: try Edit and watch the Internal view.' }
+];
 export const REQUIRED_COUNT = SCENARIOS.filter((s) => s.n).length;
