@@ -258,7 +258,7 @@ export interface Application {
   verifiedMobile: string;
   otp: {
     purpose: 'lead' | 'application' | 'resume' | 'mobile-change';
-    status: 'sent' | 'incorrect' | 'expired' | 'exhausted' | 'verified';
+    status: 'sent' | 'incorrect' | 'invalid' | 'expired' | 'exhausted' | 'verified';
     attemptsLeft: number;
     code: string;
     resendAt: number;
@@ -295,6 +295,10 @@ export interface Application {
     optional: Tenure[];
     evidence: string[];
     evidenceSkipped: boolean;
+    /** "Interested in a better commercial offer?" — the optional section stays collapsed until 'yes'. */
+    interest: 'yes' | 'no' | null;
+    /** Simulated failed optional upload (document id); never blocks. */
+    uploadError: string | null;
     agreed: AgreedOffer | null;
   };
   contract: { status: 'unavailable' | 'ready' | 'accepted' | 'declined'; acceptedAt: string };

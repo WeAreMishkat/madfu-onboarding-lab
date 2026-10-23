@@ -59,7 +59,7 @@ export function initialApplication(seed = Date.now()): Application {
     nafath: { status: 'idle', failures: 0, requests: 0, lastResult: null, number: NAFATH_NUMBERS[0], verifiedFor: null },
     certs: { status: 'idle', tries: 0, list: [], selectedId: null },
     business: { bankLinked: null, iban: '', ibanStatus: 'idle', ibanFailures: 0, ibanLast: null, bankName: '', vat: null, vatNumber: '', vatLookup: 'idle', branches: '' },
-    commercial: { optional: [], evidence: [], evidenceSkipped: false, agreed: null },
+    commercial: { optional: [], evidence: [], evidenceSkipped: false, interest: null, uploadError: null, agreed: null },
     contract: { status: 'unavailable', acceptedAt: '' },
     verifications: {},
     ledger: [],
@@ -310,6 +310,8 @@ function resumeFixture(app: Application): Application {
 export function verifyOtp(s: ProposedState, code: string): ProposedState {
   const otp = s.app.otp;
   if (otp.status === 'expired' || otp.status === 'exhausted') return s;
+  // Not a 6-digit code: rejected as invalid without using an attempt.
+  if (!/^\d{6}$/.test(code)) return withApp(s, { otp: { ...otp, code: '', status: 'invalid' } });
   if (code !== DEMO_SMS_CODE) {
     const attemptsLeft = otp.attemptsLeft - 1;
     return withApp(s, { otp: { ...otp, code, attemptsLeft, status: attemptsLeft <= 0 ? 'exhausted' : 'incorrect' } });
@@ -622,7 +624,12 @@ export function toggleOptionalPlan(s: ProposedState, t: Tenure): ProposedState {
   const cur = s.app.commercial.optional;
   return withApp(s, { commercial: { ...s.app.commercial, optional: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t].sort((a, b) => a - b) } });
 }
-export const addEvidence = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, evidence: s.app.commercial.evidence.includes(id) ? s.app.commercial.evidence : [...s.app.commercial.evidence, id], evidenceSkipped: false } });
+export const addEvidence = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, interest: 'yes', uploadError: null, evidence: s.app.commercial.evidence.includes(id) ? s.app.commercial.evidence : [...s.app.commercial.evidence, id], evidenceSkipped: false } });
+/** Simulated failed optional upload: shown inline, never blocks the standard offer. */
+export const failUpload = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, interest: 'yes', uploadError: id } });
+/** "Interested in a better commercial offer?" Not now = collapsed, nothing kept. */
+export const setBetterInterest = (s: ProposedState, v: 'yes' | 'no'): ProposedState =>
+  withApp(s, { commercial: { ...s.app.commercial, interest: v, ...(v === 'no' ? { evidence: [], uploadError: null } : {}) } });
 export const removeEvidence = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, evidence: s.app.commercial.evidence.filter((x) => x !== id) } });
 
 /** Confirm the offer: standard commission, base plans + selected optional plans. Never waits for pricing review. */
@@ -749,6 +756,9 @@ export function submitApplication(s: ProposedState): ProposedState {
   return finish(s, 'SUBMITTED', 'SUBMITTED');
 }
 
+/** The single contract action: records the (simulated) acceptance and submits the application. */
+export const agreeAndSubmit = (s: ProposedState): ProposedState => submitApplication(acceptContract(s));
+
 export const declineContract = (s: ProposedState): ProposedState =>
   finish(withApp(s, { contract: { status: 'declined', acceptedAt: '' } }), 'CONTRACT_DECLINED', 'CONTRACT_DECLINED');
 
@@ -852,7 +862,7 @@ export function prefill(kind: PrefillKind, upTo: StepId, sim: Sim = initialSim()
     app = store(app, makeRecord('IBAN', `iban:${iban}:${ibanTarget(app)}`, 'owner matched', at, providerRef('IBN', 1)));
     app = { ...app, business: { ...app.business, ibanStatus: 'verified', ibanLast: 'verified', bankName: bankFromIban(iban) } };
   }
-  if (reach('commercial')) app = { ...app, commercial: { optional: [6], evidence: [], evidenceSkipped: true, agreed: buildOffer(sub, [6], at) } };
+  if (reach('commercial')) app = { ...app, commercial: { optional: [6], evidence: [], evidenceSkipped: true, interest: null, uploadError: null, agreed: buildOffer(sub, [6], at) } };
   if (reach('review') && contractEligible(app)) app = { ...app, contract: { status: 'ready', acceptedAt: '' } };
   return app;
 }

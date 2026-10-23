@@ -40,14 +40,14 @@ describe('Page Scenarios are page-specific', () => {
   it('OTP page shows only OTP cases', () => {
     const s = AT.otp!();
     expect(s.app.step).toBe('otp');
-    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
+    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
     expect(text(s)).not.toMatch(/\bCR\b|Nafath|IBAN|categor|commission|contract|certificate|plan/i);
   });
 
   it('resumed OTP page: same OTP cases (no Edit mobile), backend reuse stays in the Internal view', () => {
     let s = sendContinueLink(build('iban-resume'));
     s = openContinueLink(leaveSession(s), Object.keys(s.backend.tokens).pop()!);
-    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code']);
+    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code']);
     expect(text(s)).not.toMatch(/reused|Nafath|IBAN/i);
   });
 
@@ -75,15 +75,15 @@ describe('Page Scenarios are page-specific', () => {
     expect(labels(fl)).toEqual(['Yes → show IBAN', 'No / not yet → skip IBAN (banking setup required)']);
   });
 
-  it('Commercial Offer shows commercial controls; plans are multi-selected on the page, not as scenario combinations', () => {
+  it('Commercial Offer shows only states the UI cannot produce naturally; plans are multi-selected on the page', () => {
     const s = AT.commercial!();
-    expect(labels(s)).toEqual(['No documents uploaded (standard commission)', 'Optional documents uploaded → Commercial review', 'Standard plans only (3 + 4 months)']);
+    expect(labels(s)).toEqual(['Standard offer only', 'Better-offer section opened', 'Optional upload succeeded', 'Optional upload failed']);
     expect(labels(s).some((l) => /6 \+ 9|9 \+ 12/.test(l))).toBe(false);
   });
 
-  it('Contract shows only accept / decline, no plan or commission controls', () => {
+  it('Contract shows only normal / declined; acceptance happens through Agree & Submit in the page', () => {
     const s = AT.contract!();
-    expect(labels(s)).toEqual(['Contract accepted', 'Contract declined']);
+    expect(labels(s)).toEqual(['Normal contract', 'Contract declined']);
     expect(text(s)).not.toMatch(/6 months|9 months|12 months|select.*plan/i);
   });
 

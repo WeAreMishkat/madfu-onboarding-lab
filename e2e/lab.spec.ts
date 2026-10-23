@@ -85,7 +85,8 @@ test('Madfu Proposed: KYB-first Freelancer journey end to end in a real browser'
   // Stage 5
   await expect(page.getByRole('heading', { name: 'Your commercial offer' })).toBeVisible();
   await page.getByRole('checkbox', { name: /^12 months/ }).check({ force: true });
-  await page.getByRole('button', { name: 'Confirm offer and continue' }).click();
+  await expect(page.getByRole('button', { name: /Add file/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Continue with this offer' }).click();
   await expect(page.getByText('Everything is ready')).toBeVisible();
 
   // Refresh keeps progress.
@@ -94,12 +95,10 @@ test('Madfu Proposed: KYB-first Freelancer journey end to end in a real browser'
 
   await page.getByRole('button', { name: 'Continue to contract' }).click();
   await expect(page.getByRole('table', { name: 'Schedule 1' })).toContainText('12 months');
-  const doc = page.getByLabel('Contract text');
-  await doc.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
-  await page.getByRole('checkbox', { name: /I have read the contract/ }).check();
-  await page.getByRole('button', { name: 'Accept contract' }).click();
-  await page.getByRole('button', { name: 'Submit application' }).click();
+  await expect(page.getByRole('main').getByRole('checkbox')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Agree & Submit' }).click();
   await expect(page.getByRole('heading', { name: 'Your application has been submitted.' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
 });
 
 test('Prototype Controls: Start demo preset, Page Scenarios per screen, Internal view shows reuse', async ({ page }) => {
@@ -113,13 +112,28 @@ test('Prototype Controls: Start demo preset, Page Scenarios per screen, Internal
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await controls.getByRole('tab', { name: 'This step' }).click();
   const scenarios = controls.getByRole('tabpanel', { name: 'Page Scenarios' });
-  await expect(scenarios.getByRole('button')).toHaveText(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code']);
+  await expect(scenarios.getByRole('button')).toHaveText(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code']);
   await scenarios.getByRole('button', { name: 'Verified' }).click();
   await expect(page.getByRole('heading', { name: 'Review your application' })).toBeVisible();
   await expect(scenarios.getByRole('button', { name: 'Edit Know Your Business' })).toBeVisible();
   await expect(scenarios.getByRole('button', { name: 'Incorrect code' })).toHaveCount(0);
   await controls.getByRole('tab', { name: 'Internal view' }).click();
   await expect(controls.getByText('Verified previously — reused, no new provider call')).toHaveCount(4);
+});
+
+test('Prototype Controls open by default in a light reviewer theme, with the prototype hint', async ({ page, context }) => {
+  await context.clearCookies();
+  await page.goto('./madfu/proposed');
+  await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+  await page.reload();
+  const controls = page.getByRole('complementary', { name: 'Prototype Controls' });
+  await expect(controls).toBeVisible();
+  await expect(page.getByRole('note')).toContainText('Prototype mode');
+  await expect(controls.getByText(/Prototype tip:/)).toBeVisible();
+  const bg = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  const light = (rgb: string) => { const [r, g, b] = rgb.match(/\d+/g)!.map(Number); return (r + g + b) / 3 > 220; };
+  expect(light(await bg('.ip'))).toBe(true);
+  expect(light(await bg('.lab-bar'))).toBe(true);
 });
 
 test('Compare: Current vs Proposed and all four', async ({ page }) => {

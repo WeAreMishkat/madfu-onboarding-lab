@@ -13,7 +13,7 @@ import { ACTIVITY_MAPPING } from './activity';
 import { LIMITS, isFreelancer } from './config';
 import { DEMO, DEMO_SMS_CODE, demoIban, eligiblePersons } from './mock';
 import {
-  acceptContract, addEvidence, declineContract, editMobileFromOtp, expireOtp, finishIbanCheck, ibanTarget, loadCertificates, loadPersons,
+  addEvidence, declineContract, failUpload, setBetterInterest, editMobileFromOtp, expireOtp, finishIbanCheck, ibanTarget, loadCertificates, loadPersons,
   nafathResult, reopenContract, resendOtp, runCrVerification, selectPerson, setBankLinked, setIdentity, setKyb, setLead, startEdit,
   startIbanCheck, startNafath, verifyOtp
 } from './state';
@@ -140,7 +140,10 @@ const otp: PageDef = {
       title: 'OTP result',
       options: [
         { id: 'verified', label: 'Verified', run: (x) => verifyOtp(x, DEMO_SMS_CODE) },
-        ...(blocked ? [] : [{ id: 'incorrect', label: 'Incorrect code', run: (x: ProposedState) => verifyOtp(x, '135790') }]),
+        ...(blocked ? [] : [
+          { id: 'incorrect', label: 'Incorrect code', run: (x: ProposedState) => verifyOtp(x, '135790') },
+          { id: 'invalid', label: 'Invalid code (wrong format)', run: (x: ProposedState) => verifyOtp(x, '12ab') }
+        ]),
         { id: 'expired', label: 'Expired / timed out', run: expireOtp },
         { id: 'exhausted', label: 'All attempts failed', run: (x) => app(x, { otp: { ...x.app.otp, status: 'exhausted', attemptsLeft: 0, code: '' } }) }
       ]
@@ -352,20 +355,15 @@ const commercial: PageDef = {
   title: 'Commercial Offer',
   intro: '3 and 4 months are always included. Select 6 / 9 / 12 months directly on the page; prices come from the mock pricing configuration.',
   integrations: ['Pricing & Commission Matrix (mock)'],
-  groups: () => [
-    {
-      title: 'Better pricing',
-      options: [
-        { id: 'no-docs', label: 'No documents uploaded (standard commission)', run: (x) => app(x, { commercial: { ...x.app.commercial, evidence: [] } }), current: (x) => x.app.commercial.evidence.length === 0 },
-        { id: 'docs', label: 'Optional documents uploaded → Commercial review', run: (x) => addEvidence(x, 'doc-a'), current: (x) => x.app.commercial.evidence.length > 0 }
-      ]
-    },
-    {
-      title: 'Payment plans',
-      note: 'Multi-select 6 / 9 / 12 months on the page itself.',
-      options: [{ id: 'base', label: 'Standard plans only (3 + 4 months)', run: (x) => app(x, { commercial: { ...x.app.commercial, optional: [] } }), current: (x) => x.app.commercial.optional.length === 0 }]
-    }
-  ]
+  groups: () => [{
+    title: 'Better commercial offer (optional)',
+    options: [
+      { id: 'standard', label: 'Standard offer only', run: (x) => setBetterInterest(x, 'no'), current: (x) => x.app.commercial.interest !== 'yes' },
+      { id: 'open', label: 'Better-offer section opened', run: (x) => setBetterInterest(x, 'yes'), current: (x) => x.app.commercial.interest === 'yes' && x.app.commercial.evidence.length === 0 && !x.app.commercial.uploadError },
+      { id: 'upload-ok', label: 'Optional upload succeeded', run: (x) => addEvidence(x, 'doc-a'), current: (x) => x.app.commercial.evidence.length > 0 },
+      { id: 'upload-fail', label: 'Optional upload failed', run: (x) => failUpload(x, 'doc-a'), current: (x) => !!x.app.commercial.uploadError }
+    ]
+  }]
 };
 
 /* ------------------------------------------------------------------ Review */
@@ -389,12 +387,12 @@ const review: PageDef = {
 
 const contract: PageDef = {
   title: 'Contract',
-  intro: 'Contract only. Plans and commission are shown as contract content and cannot be changed here.',
+  intro: 'Contract only. Agree & Submit in the page completes the application; plans and commission cannot be changed here.',
   integrations: ['Contract acceptance (generic, provider not approved)'],
-  groups: (s) => s.app.contract.status === 'accepted' ? [] : [{
-    title: 'Contract result',
+  groups: () => [{
+    title: 'Contract',
     options: [
-      { id: 'accepted', label: 'Contract accepted', run: acceptContract },
+      { id: 'normal', label: 'Normal contract', run: (x) => app(x, { contract: { status: 'ready', acceptedAt: '' } }), current: (x) => x.app.contract.status === 'ready' },
       { id: 'declined', label: 'Contract declined', run: declineContract }
     ]
   }]

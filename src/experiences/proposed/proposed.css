@@ -676,3 +676,72 @@ legend.mb-label { margin-bottom: 8px; }
 .ip-sms li { background: #1f2547; border-radius: 6px; padding: 8px 10px; font-size: 12.5px; color: #c3c7da; display: grid; gap: 6px; }
 .jm-open-type.is-ni { color: #fff; background: #9b2c2c; border-color: #9b2c2c; }
 .jm-open-clarify { margin: 4px 0 2px; padding-left: 18px; display: grid; gap: 2px; font-size: 0.92em; color: #4a4a4a; }
+
+/* =====================================================================
+ * Reviewer theme (light). Prototype Controls are reviewer tools, not merchant UI:
+ * separate panel, neutral grey surface, clear border, dark text.
+ * ===================================================================== */
+.ip { background: #f4f5f8; color: #1d2133; border-left: 1px solid #d5d8e2; }
+.ip-head { border-bottom: 1px solid #e1e3ea; background: #fff; }
+.ip-head .lab-icon-btn { background: #fff; border-color: #d5d8e2; color: #3a4058; }
+.ip-eyebrow { color: #6b4e00; }
+.ip-title { color: #1d2133; }
+.ip-reviewer-tag { display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 600; color: #565d78; background: #eceef4; border: 1px solid #d5d8e2; border-radius: 4px; padding: 2px 6px; }
+.ip-route { background: #fff; border-color: #e1e3ea; margin: 0; }
+.ip-route-row { color: #565d78; }
+.ip-route code, .ip-route-lead code { color: #0e5a3c; background: #e6f4ec; }
+.ip-route-label { color: #1d2133; }
+.ip-tabs { background: #fff; border-bottom: 1px solid #e1e3ea; padding-top: 6px; }
+.ip-tab { color: #565d78; }
+.ip-tab.is-active { color: #1d2133; border-bottom-color: #3b4cc0; }
+.ip-tab:focus-visible, .ip-scenario:focus-visible { outline: 2px solid #3b4cc0; }
+.ip-current { background: #fff; border-color: #e1e3ea; }
+.ip-current .ip-eyebrow { color: #3b4cc0; }
+.ip-current-label { color: #1d2133; font-size: 14px; }
+.ip-current-hint { color: #3a4058; }
+.ip-tip { font-size: 12.5px; color: #3a4058; background: #fff8eb; border: 1px solid #f3d6a4; border-radius: 8px; padding: 8px 10px; }
+.ip-tip strong { color: #6b4e00; }
+.ip-group-title { color: #565d78; }
+.ip-group-title span { color: #8a90a8; }
+.ip-scenario { color: #1d2133; background: #fff; border-color: #d5d8e2; }
+.ip-scenario:hover { border-color: #9aa3c4; color: #1d2133; }
+.ip-scenario.is-active { background: #eef0fd; border-color: #3b4cc0; color: #1d2133; box-shadow: inset 0 0 0 1px #3b4cc0; }
+.ip-check { background: #fff; border-color: #e1e3ea; color: #3a4058; }
+.ip-check strong { color: #1d2133; }
+.ip-check.is-reused { border-left-color: #1a8a55; }
+.ip-check.is-verified { border-left-color: #3b4cc0; }
+.ip-check.is-invalidated { border-left-color: #b86e00; }
+.ip-check.is-not-run { border-left-color: #c3c7d4; }
+.ip-next-call { color: #1d2133; background: #fff; border: 1px solid #e1e3ea; }
+.ip-ledger { color: #3a4058; }
+.ip-ledger .k-call { color: #b42318; } .ip-ledger .k-otp { color: #8f5300; } .ip-ledger .k-reuse { color: #0e7a4f; } .ip-ledger .k-invalidate { color: #b86e00; }
+.ip-sms li { background: #fff; border: 1px solid #e1e3ea; color: #3a4058; }
+.ip-sms button { border: 1px solid #d5d8e2; background: #fff; color: #1d2133; border-radius: 6px; padding: 5px 8px; font-weight: 600; }
+.ip-dl dt { color: #1d2133; }
+.ip-dl dd { color: #565d78; }
+.ip-flags { color: #3a4058; }
+.ip-flags code { color: #8f5300; }
+.ip-note { color: #3a4058; }
+.ip-foot { color: #6b7189; }
+.ip-mono { color: #1d2133; }
+@media (max-width: 1180px) { .ip { box-shadow: -12px 0 32px rgba(16, 20, 64, 0.12); } }
+
+/* Prototype mode hint (top of the prototype) */
+.mb-proto-hint { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 20px; font-size: 13px; color: #3a4058; background: #fff8eb; border-bottom: 1px solid #f3d6a4; }
+.mb-proto-hint strong { color: #6b4e00; }
+.mb-proto-hint button { margin-left: auto; border: 1px solid #f3d6a4; background: #fff; color: #6b4e00; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 600; }
+
+/* Commercial Offer: compact optional better-offer card */
+.mb-better { border: 1px solid var(--mb-line); border-radius: var(--mb-radius); padding: 14px 16px; background: var(--mb-surface); }
+.mb-better-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.mb-better-title { font-size: 14.5px; font-weight: 600; color: var(--mb-ink); }
+.mb-better-tag { font-size: 11.5px; font-weight: 600; color: var(--mb-muted); border: 1px solid var(--mb-line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.mb-better-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.mb-better-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mb-line); animation: mb-expand 160ms ease-out; }
+@keyframes mb-expand { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.mb-better-body .mb-evidence { margin-top: 8px; }
+.mb-offer-hero.is-primary { margin-bottom: 20px; }
+
+/* Contract: one action with disclaimer */
+.mb-contract-disclaimer { font-size: 12.5px; color: var(--mb-muted); margin-top: 14px; max-width: 640px; }
+.mb-contract-disclaimer strong { color: var(--mb-ink-2); font-weight: 600; }

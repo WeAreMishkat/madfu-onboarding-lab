@@ -21,14 +21,13 @@ const LabCtx = createContext<LabState | null>(null);
 
 export function LabProvider({ children }: { children: ReactNode }) {
   const [evidenceMode, setEvidence] = useState<boolean>(() => readStore('lab.evidence', false));
-  // The Internal View is a side rail on desktop; on phones and small tablets it would cover the
-  // merchant UI, so it starts closed there.
-  const [internalView, setInternal] = useState<boolean>(() => readStore('lab.internal', typeof window === 'undefined' || window.innerWidth >= 1000));
+  // Prototype Controls are open by default; a reviewer can still collapse them.
+  const [internalView, setInternal] = useState<boolean>(() => readStore('lab.controls', true));
   const restartRef = useRef<(() => void) | null>(null);
   const [canRestart, setCanRestart] = useState(false);
 
   const setEvidenceMode = useCallback((on: boolean) => { setEvidence(on); writeStore('lab.evidence', on); }, []);
-  const setInternalView = useCallback((on: boolean) => { setInternal(on); writeStore('lab.internal', on); }, []);
+  const setInternalView = useCallback((on: boolean) => { setInternal(on); writeStore('lab.controls', on); }, []);
   const registerRestart = useCallback((fn: (() => void) | null) => {
     restartRef.current = fn;
     setCanRestart(!!fn);

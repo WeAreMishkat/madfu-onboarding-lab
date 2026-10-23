@@ -41,6 +41,7 @@ export function OtpStep() {
 
   const error =
     otp.status === 'incorrect' ? `Incorrect code. ${otp.attemptsLeft} attempt${otp.attemptsLeft === 1 ? '' : 's'} left.`
+      : otp.status === 'invalid' ? 'Enter the 6-digit code from the SMS.'
       : otp.status === 'expired' ? 'This code has expired. Request a new code.'
         : otp.status === 'exhausted' ? `Too many incorrect attempts (${LIMITS.otpAttempts}). Request a new code to continue.`
           : null;
@@ -68,7 +69,7 @@ export function OtpStep() {
           invalid={!!error}
           disabled={verifying || blocked}
           describedBy={error ? 'otp-error' : undefined}
-          onChange={(v) => { setCode(v); if (otp.status === 'incorrect') apply((s) => ({ ...s, app: { ...s.app, otp: { ...s.app.otp, status: 'sent' } } })); }}
+          onChange={(v) => { setCode(v); if (otp.status === 'incorrect' || otp.status === 'invalid') apply((s) => ({ ...s, app: { ...s.app, otp: { ...s.app.otp, status: 'sent' } } })); }}
           onComplete={(v) => void verify(v)}
         />
         {error && <div id="otp-error"><Alert tone={blocked ? 'warning' : 'error'}>{error}</Alert></div>}

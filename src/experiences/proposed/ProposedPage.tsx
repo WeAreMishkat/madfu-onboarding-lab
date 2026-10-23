@@ -161,6 +161,12 @@ function ProposedShell() {
       </div>
 
       {view === 'prototype' && (
+        <p className="mb-proto-hint" role="note">
+          <strong>Prototype mode</strong> Use the Prototype Controls beside each screen to simulate that step’s possible states, then continue through the journey.
+          {!internalView && <button type="button" onClick={() => setInternalView(true)}>Show controls</button>}
+        </p>
+      )}
+      {view === 'prototype' && (
         <div className="mb-shell">
           <ProposedFrame />
           {internalView && <InternalPanel onClose={() => setInternalView(false)} />}

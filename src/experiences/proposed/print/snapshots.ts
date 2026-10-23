@@ -63,16 +63,16 @@ export const SNAPSHOTS: Snapshot[] = [
   { id: 'fl-bank-no', section: 'banking', title: 'Freelancer: bank not linked', caption: 'IBAN skipped; journey continues; internal "banking setup required".', state: () => setBankLinked(sc('fl-bank-no'), 'no') },
 
   // Stage 5
-  { id: 'commercial', section: 'commercial', title: 'Commercial Offer', caption: 'Standard commission, 3 / 4 months included, 6 / 9 / 12 optional, summary. Synthetic values.', state: () => sc('com-6') },
-  { id: 'commercial-evidence', section: 'commercial', title: 'Commercial Offer: better-rate evidence', caption: 'Optional. Onboarding continues with the standard rate while Commercial reviews.', state: () => sc('com-upload') },
+  { id: 'commercial', section: 'commercial', title: 'Commercial Offer', caption: 'Primary path: standard offer → Continue. 3 / 4 months included, 6 / 9 / 12 optional; the better-offer question is collapsed and optional. Synthetic values.', state: () => sc('com-6') },
+  { id: 'commercial-evidence', section: 'commercial', title: 'Commercial Offer: better offer expanded', caption: 'Shown only after "Yes, tell me more". Optional documents; onboarding continues with the standard offer while Commercial reviews.', state: () => sc('com-upload') },
 
   // Stage 6
   { id: 'review', section: 'review', title: 'Review', caption: 'Every section has Edit and returns here. Verification status shown.', state: () => sc('edit-website') },
   { id: 'review-edit', section: 'review', title: 'Edit from Review', caption: 'Edit Know Your Business: Cancel restores; Save re-evaluates internally, no provider call.', state: () => startEdit(sc('edit-website'), 'kyb') },
 
   // Stage 7 / 8
-  { id: 'contract', section: 'contract', title: 'Contract', caption: 'Contract only: agreed commission and plans appear as Schedule 1, never as choices.', state: () => sc('contract-accept') },
-  { id: 'out-submitted', section: 'contract', title: 'Outcome: submitted', caption: 'Never shown as activated.', state: () => submitApplication(acceptContract(sc('contract-accept'))) },
+  { id: 'contract', section: 'contract', title: 'Contract', caption: 'Contract only, one action: Agree & Submit records acceptance and submits. No checkbox, no second Submit. Commission and plans appear as Schedule 1.', state: () => sc('contract-accept') },
+  { id: 'out-submitted', section: 'contract', title: 'Outcome: submitted', caption: 'Shown immediately after Agree & Submit. Minimal; never shown as activated.', state: () => submitApplication(acceptContract(sc('contract-accept'))) },
   { id: 'out-banking', section: 'contract', title: 'Outcome: submitted, banking pending', caption: 'Freelancer without a linked bank account.', state: () => submitApplication(acceptContract(sc('submit-banking'))) },
   { id: 'out-manual', section: 'contract', title: 'Outcome: manual verification', caption: 'Nafath not verified: submitted without contract.', state: () => continueFromReview(sc('submit-manual')) },
   { id: 'out-declined', section: 'contract', title: 'Outcome: contract declined', caption: 'Not submitted; resumable at the contract.', state: () => declineContract(sc('contract-decline')) },

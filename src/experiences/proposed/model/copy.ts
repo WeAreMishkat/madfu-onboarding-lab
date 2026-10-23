@@ -8,7 +8,7 @@ import type { Flag, InternalStatus, OutcomeKind, ReasonCode } from './types';
 export const OUTCOME_COPY: Record<OutcomeKind, { title: string; body: string; tone: 'success' | 'neutral' | 'warning' }> = {
   SUBMITTED: {
     title: 'Your application has been submitted successfully.',
-    body: 'We are reviewing it now and will contact you about the next steps. Your merchant account is set up only after approval.',
+    body: 'Our team will review your application and contact you if anything else is required.',
     tone: 'success'
   },
   SUBMITTED_BANKING_PENDING: {
@@ -117,6 +117,6 @@ export const FLAG_LABEL: Record<Flag, string> = {
   NAFATH_UNVERIFIED: 'Identity / authority not verified with Nafath',
   IBAN_UNVERIFIED: 'IBAN ownership not verified (financial review)',
   BANKING_SETUP_REQUIRED: 'Banking setup required (Freelancer bank not linked)',
-  COMMERCIAL_PRICING_REVIEW: 'Commercial pricing review (optional evidence uploaded)',
+  COMMERCIAL_PRICING_REVIEW: 'Commercial pricing review requested',
   CERTIFICATE_INCONSISTENT: 'Certificate data inconsistent'
 };

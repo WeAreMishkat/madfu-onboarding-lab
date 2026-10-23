@@ -77,7 +77,7 @@ const declare = (group: string, sub: string) => (a: Application): Application =>
 const idleNafath = (a: Application): Application => ({ ...a, nafath: { ...a.nafath, status: 'idle', requests: 0, failures: 0, lastResult: null, verifiedFor: null } });
 const idleCerts = (a: Application): Application => ({ ...a, certs: { status: 'idle', tries: 0, list: [], selectedId: null }, activity: null });
 const openIban = (a: Application): Application => ({ ...a, business: { ...a.business, ibanStatus: 'idle', ibanLast: null, bankName: '' }, verifications: { ...a.verifications, IBAN: undefined } });
-const offer = (optional: Application['commercial']['optional'], evidence: string[] = []) => (a: Application): Application => ({ ...a, commercial: { optional, evidence, evidenceSkipped: false, agreed: null } });
+const offer = (optional: Application['commercial']['optional'], evidence: string[] = []) => (a: Application): Application => ({ ...a, commercial: { optional, evidence, evidenceSkipped: false, interest: evidence.length ? 'yes' : null, uploadError: null, agreed: null } });
 
 /* ------------------------------------------------------------------ the list */
 
@@ -106,7 +106,7 @@ export const SCENARIOS: Scenario[] = [
   { id: 'resume-link', n: 16, group: 'Identify & resume', label: 'Continue link → OTP → resume Stage 3+', hint: 'Opened from the SMS link: only the code is asked, then Stage 3 opens.', build: () => resumeFrom('resume-link', 'FL_CERT', 'nafath', simWith(), idleNafath) },
   { id: 'resume-cr', n: 17, group: 'Identify & resume', label: 'Resume after CR verified', hint: 'After the code: the CR data is reused (no registry call). See Internal state.', build: () => resumeFrom('resume-cr', 'CR', 'persons', simWith(), (a) => ({ ...a, persons: { status: 'idle', tries: 0, list: [], selectedId: null } })) },
   { id: 'resume-nafath', n: 18, group: 'Identify & resume', label: 'Resume after Nafath verified', hint: 'After the code: Nafath is not requested again.', build: () => resumeFrom('resume-nafath', 'CR', 'business', simWith(), openIban) },
-  { id: 'resume-iban', n: 19, group: 'Identify & resume', label: 'Resume after IBAN verified', hint: 'After the code: the IBAN check is reused; the Commercial Offer opens.', build: () => resumeFrom('resume-iban', 'CR', 'commercial', simWith(), (a) => ({ ...a, commercial: { optional: [], evidence: [], evidenceSkipped: false, agreed: null } })) },
+  { id: 'resume-iban', n: 19, group: 'Identify & resume', label: 'Resume after IBAN verified', hint: 'After the code: the IBAN check is reused; the Commercial Offer opens.', build: () => resumeFrom('resume-iban', 'CR', 'commercial', simWith(), (a) => ({ ...a, commercial: { optional: [], evidence: [], evidenceSkipped: false, interest: null, uploadError: null, agreed: null } })) },
 
   // Government / eligibility
   { id: 'gov-young', n: 20, group: 'Government & activity', label: 'CR 3 months old or less', hint: 'Temporarily not eligible: the applicant can apply later.', build: () => at('gov-young', 'CR', 'cr-verify', simWith({}, { issuedMonthsAgo: 2 })) },

@@ -26,8 +26,8 @@ export const PRICING_MATRIX: PriceRow[] = [
 
 /** Optional evidence for a better rate. Placeholder names: the real documents are not finalised. */
 export const PRICING_EVIDENCE = [
-  { id: 'doc-a', label: 'Revenue supporting document A', hint: 'Placeholder: document type to be confirmed by Commercial.' },
-  { id: 'doc-b', label: 'Revenue supporting document B', hint: 'Placeholder: document type to be confirmed by Commercial.' }
+  { id: 'doc-a', label: 'Supporting document', hint: 'Optional. Exact requirements to be confirmed by Commercial.' },
+  { id: 'doc-b', label: 'Additional supporting document', hint: 'Optional. Exact requirements to be confirmed by Commercial.' }
 ];
 
 export function priceFor(subId: string): PriceRow {

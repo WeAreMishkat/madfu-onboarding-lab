@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { LIMITS, maskMobile } from './model/config';
 import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './model/copy';
 import { pageScenarios, reuseNote } from './model/pageScenarios';
@@ -24,6 +24,8 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
   const { state, apply, replace } = useProposed();
   const [tab, setTab] = useState<Tab>('step');
   const { app, backend } = state;
+  // After a Start demo choice (or any navigation), show what can happen on the new screen.
+  useEffect(() => { setTab((t) => (t === 'demo' ? 'step' : t)); }, [app.step, state.scenarioId]);
   const { page, groups } = pageScenarios(state);
   const note = reuseNote(state);
   const e = app.eligibility;
@@ -35,7 +37,8 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
       <header className="ip-head">
         <div>
           <p className="ip-eyebrow">Prototype Controls</p>
-          <p className="ip-title">Not part of the merchant UI</p>
+          <p className="ip-title">For reviewers — not part of the merchant UI</p>
+          <span className="ip-reviewer-tag">Prototype only</span>
         </div>
         <button type="button" className="lab-icon-btn" onClick={onClose} aria-label="Hide Prototype Controls">
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
@@ -52,6 +55,7 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
 
       {tab === 'step' && (
         <div className="ip-body" role="tabpanel" aria-label="Page Scenarios">
+          <p className="ip-tip"><strong>Prototype tip:</strong> choose a scenario below to simulate the possible outcomes of this step.</p>
           <div className="ip-current">
             <p className="ip-eyebrow">Page Scenarios</p>
             <p className="ip-current-label">{page.title}</p>

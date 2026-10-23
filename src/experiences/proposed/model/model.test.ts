@@ -10,7 +10,8 @@ import {
   acceptContract, confirmOffer, continueAfterNafath, continueFromReview, contractEligible, declineContract, finishIbanCheck, firstIncomplete,
   initialState, leaveSession, loadCertificates, loadPersons, nafathResult, openContinueLink, prefill, reopenContract, runCrVerification,
   sendContinueLink, setBankLinked, setIban, setIdentity, setKyb, startEdit, startIbanCheck, startNafath, submitApplication, submitBusiness,
-  submitIdentify, submitKyb, submitLead, toggleOptionalPlan, verifyOtp, withSaved, cancelEdit, confirmCertificate, selectPerson, addEvidence
+  submitIdentify, submitKyb, submitLead, toggleOptionalPlan, verifyOtp, withSaved, cancelEdit, confirmCertificate, selectPerson, addEvidence,
+  agreeAndSubmit, setBetterInterest, failUpload
 } from './state';
 import type { ProposedState } from './types';
 import { validateMapsUrl, validateWebsite } from './urls';
@@ -437,6 +438,28 @@ describe('Contract and outcomes', () => {
     s = otp(submitLead({ ...s, app: { ...s.app, lead: { name: 'Faisal', mobile: DEMO.mobile } } }));
     expect(s.app.outcome).toBe('SALES_LEAD');
     expect(s.app.status).toBe('LEAD_HIGH_REVENUE');
+  });
+});
+
+describe('Agree & Submit and the optional better offer', () => {
+  it('one contract action records acceptance and submits (no separate submit step)', () => {
+    const s = agreeAndSubmit(build('contract-accept'));
+    expect(s.app.contract.status).toBe('accepted');
+    expect(s.app.outcome).toBe('SUBMITTED');
+    expect(s.app.step).toBe('outcome');
+    expect(agreeAndSubmit(build('submit-banking')).app.outcome).toBe('SUBMITTED_BANKING_PENDING');
+  });
+
+  it('better offer: collapsed (null) by default, "Not now" clears files, uploads keep the standard rate', () => {
+    const s = build('com-standard');
+    expect(s.app.commercial.interest).toBeNull();
+    const withFile = addEvidence(setBetterInterest(s, 'yes'), 'doc-a');
+    expect(withFile.app.commercial.evidence).toEqual(['doc-a']);
+    expect(setBetterInterest(withFile, 'no').app.commercial.evidence).toEqual([]);
+    const failed = failUpload(setBetterInterest(s, 'yes'), 'doc-a');
+    expect(failed.app.commercial.uploadError).toBe('doc-a');
+    expect(confirmOffer(failed).app.step).toBe('review');
+    expect(confirmOffer(withFile).app.commercial.agreed!.standardRate).toBe(priceFor('food-cafe').standard);
   });
 });
 

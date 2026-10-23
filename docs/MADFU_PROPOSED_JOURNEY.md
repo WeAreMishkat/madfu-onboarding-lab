@@ -111,12 +111,12 @@ Stage-1 answers are shown, not asked again. Only remaining details. IBAN ownersh
 
 ### E · Commercial Offer
 
-All commercial configuration lives here, not in the Contract. Standard commission comes from the pricing matrix; declared revenue never lowers it automatically.
+All commercial configuration lives here, not in the Contract. Primary path: standard offer → Continue. The better-offer question is collapsed and optional; declared revenue never lowers the commission automatically.
 
-- **Commercial Offer** _(screen)_ — Standard commission · optional evidence · payment plans · summary
+- **Commercial Offer** _(screen)_ — Standard offer · included + optional plans · summary · Continue
 - **Pricing matrix** _(backend)_ — Category / subcategory → standard rate and plan rates
 - **Payment plans** _(screen)_ — 3 + 4 months included · 6 / 9 / 12 optional multi-select
-- **Optional better-rate evidence** _(screen)_ — Never blocks; skip = standard rate
+- **Better offer? (collapsed)** _(screen)_ — Yes → optional documents · Not now → stays collapsed · never blocks
 - **Commercial pricing review** _(manual)_ — Internal; onboarding does not wait
 - **Offer summary → Continue** _(screen)_
 - **PRODUCT TASK: Pricing & Commission Matrix** _(open)_
@@ -136,11 +136,11 @@ Every section has Edit and returns to Review. An edit invalidates only the verif
 
 ### G · Contract and Submit / Outcome
 
-The contract page contains the contract only: agreed commission and plans are shown as contract content, never selected here. Nafath is not the contract provider.
+The contract page contains the contract only, with one action: Agree & Submit records acceptance and submits the application (no checkbox, no second Submit). Commission and plans are shown as contract content. Nafath is not the contract provider.
 
 - **Review** _(screen)_
 - **Contract gate** _(decision)_ — Nafath · person / certificate
-- **Contract** _(screen)_ — Read · accept / decline · back
+- **Contract** _(screen)_ — Read · one action: Agree & Submit · decline · no checkbox
 - **Submitted** _(outcome)_ — Your application has been submitted successfully.
 - **Submitted · banking pending** _(outcome)_ — Freelancer bank not linked
 - **Contract declined** _(outcome)_ — Not submitted; resumable
@@ -352,7 +352,7 @@ These are **not confirmed rules**. The prototype implements each configurably wi
 - **PRODUCT TASK — Define Category/Subcategory ↔ CR Activity mapping.** MATCH / COMPATIBLE / AMBIGUOUS / CONFLICT / UNMAPPED per pair, and the action for each (continue, manual review, stop, clarification).
 - **PRODUCT TASK — Complete the Onboarding Decision & Validation Inventory.** Every rule from merchant input, government CR data, National Address, freelancer data, regulation, Madfu policy, categories, CR activities / age / status, legal entity, nationality, violations, banking, sales channel. Per rule: source, field, condition, type, regulatory / business / internal, stage, blocking, user message, internal status, manual follow-up, external-call cost, version.
 - **COMPLIANCE DECISION — Freelancer linked IBAN before contract?.** Can a Freelancer sign the Madfu contract before the required IBAN is linked to the Freelancer Certificate? Prototype rule flag: false (least disruptive: contract allowed, banking follow-up).
-- **PRODUCT/COMMERCIAL DECISION — Optional better-pricing documents.** Which documents qualify a merchant for improved pricing. Prototype: "Revenue supporting document A / B" placeholders. Contract amendment / repricing after review also open.
+- **PRODUCT/COMMERCIAL DECISION — Optional better-pricing documents.** Which documents qualify a merchant for improved pricing. Prototype: neutral "Supporting document" / "Additional supporting document" placeholders, shown only after the merchant says they are interested in a better offer. Contract amendment / repricing after review also open.
 - **PRODUCT/ENGINEERING DECISION — Freshness / expiry policy for stored verifications.** CR data, people, Nafath, certificates, IBAN. Prototype: "Reusable until invalidated" (no expiry) for all.
 - **PRODUCT / COMPLIANCE DECISION — Mobile ownership vs selected authorized person.** **NOT IMPLEMENTED — DECISION REQUIRED.** Registered business: what should happen if the OTP-verified mobile number is not associated with the National ID of the CR owner / authorized person selected for Nafath? The prototype has no logic for this: it does not block, call a provider, show a message or change Nafath.
   - Is mobile ↔ National ID ownership matching required?
@@ -407,15 +407,15 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - **Know Your Business** (None — internal eligibility rules only): Eligibility result: Eligible (registered business) / Category blocked / Category requires a CR (Freelancer) / Freelancer not allowed for the selected channel / Manual business review / Freelancer without certificate → lead / Registered business above SAR 20M → Sales lead / Category temporarily paused — Website validation: Valid website / Invalid website / Social-media URL / WhatsApp URL — Google Maps validation: Valid Google Maps URL / Invalid Maps URL
 - **Lead contact** (SMS OTP service (next)): Form: Fill demo contact details
 - **Identify & Verify** (Madfu application and merchant records (internal), SMS OTP service (next)): Identity check result: New applicant / Saved application, same mobile → resume / Application exists under another mobile / Already a Madfu merchant
-- **OTP verification** (SMS OTP service): OTP result: Verified / Incorrect code / Expired / timed out / All attempts failed — Actions: Resend code / Edit mobile number
+- **OTP verification** (SMS OTP service): OTP result: Verified / Incorrect code / Invalid code (wrong format) / Expired / timed out / All attempts failed — Actions: Resend code / Edit mobile number
 - **Business verification (CR)** (Government CR data (registry, activities, National Address)): CR result: Valid CR / CR 3 months old or less / Expired / Suspended / Government restriction / violation / Provider unavailable / CR not found — Non-blocking findings: National Address missing / National Address expired / Extra documents required later — Declared category ↔ registered activity: Match / Conflict / Not in the mapping
 - **Authorised person** (Government associated parties): People on the registration: One eligible person / Several eligible people / No eligible person / Government data unavailable
 - **Nafath** (Nafath): Nafath answer: Verified / Rejected / Timeout / Technical failure — Attempts: First failure — retry available / Final failed attempt → manual route
 - **Freelancer certificate** (Freelance platform (certificates)): Retrieval result: One certificate / Multiple certificates / No certificate found / Certificate expired / Certificate service unavailable / Certificate / category mismatch / Already linked to another account
 - **Business & banking details** (Bank ownership provider (IBAN)): Bank account linked to the Freelancer Certificate?: Yes → show IBAN / No / not yet → skip IBAN (banking setup required)
-- **Commercial Offer** (Pricing & Commission Matrix (mock)): Better pricing: No documents uploaded (standard commission) / Optional documents uploaded → Commercial review — Payment plans: Standard plans only (3 + 4 months)
+- **Commercial Offer** (Pricing & Commission Matrix (mock)): Better commercial offer (optional): Standard offer only / Better-offer section opened / Optional upload succeeded / Optional upload failed
 - **Review** (None until an edit changes a verified field): Edit: Edit Know Your Business / Edit identification / Edit business details / IBAN / Edit commercial offer
-- **Contract** (Contract acceptance (generic, provider not approved)): Contract result: Contract accepted / Contract declined
+- **Contract** (Contract acceptance (generic, provider not approved)): Contract: Normal contract / Contract declined
 
 ## Scenario catalogue (automated test coverage)
 

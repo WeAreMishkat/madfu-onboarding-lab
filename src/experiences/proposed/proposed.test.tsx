@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { renderAt } from '@/test/render';
 import { STAGES } from './model/config';
@@ -131,7 +131,9 @@ describe('Full registered-business journey in the UI', () => {
     await user.click(screen.getByRole('checkbox', { name: /^9 months/ }));
     await user.click(screen.getByRole('checkbox', { name: /^9 months/ }));
     expect(screen.getByText(/6 months \(/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Confirm offer and continue' }));
+    // The optional better-offer section stays collapsed: no upload is needed to continue.
+    expect(screen.queryByRole('button', { name: /Add file/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Continue with this offer' }));
 
     await screen.findByRole('heading', { name: 'Review your application' });
     expect(screen.getByText('Everything is ready')).toBeInTheDocument();
@@ -143,16 +145,19 @@ describe('Full registered-business journey in the UI', () => {
     const user2 = (await import('@testing-library/user-event')).default.setup({ delay: null });
     await user2.click(screen.getByRole('button', { name: 'Continue to contract' }));
 
-    // Stage 7: contract only, no plan selection.
-    await screen.findByRole('heading', { name: 'Merchant contract' });
+    // Stage 7: contract only — no checkbox, no plan selection, one action.
+    await screen.findByRole('heading', { name: 'Merchant agreement' });
     const main = screen.getByRole('main');
-    expect(within(main).queryAllByRole('checkbox').filter((c) => !/I have read the contract/.test(c.closest('label')?.textContent ?? ''))).toHaveLength(0);
+    expect(within(main).queryAllByRole('checkbox')).toHaveLength(0);
     expect(within(main).getByRole('table', { name: 'Schedule 1' })).toHaveTextContent('6 months');
-    fireEvent.scroll(screen.getByLabelText('Contract text'));
-    await user2.click(screen.getByRole('checkbox', { name: /I have read the contract/ }));
-    await user2.click(screen.getByRole('button', { name: 'Accept contract' }));
-    await user2.click(await screen.findByRole('button', { name: 'Submit application' }));
+    expect(within(main).getByText(/By clicking/)).toHaveTextContent(/Privacy Policy/);
+    expect(within(main).queryByRole('button', { name: 'Submit application' })).toBeNull();
+    await user2.click(screen.getByRole('button', { name: 'Agree & Submit' }));
+    // Directly to success: no second Submit, no confirmation form.
     expect(await screen.findByRole('heading', { name: OUTCOME_COPY.SUBMITTED.title })).toBeInTheDocument();
+    expect(screen.getByText('Our team will review your application and contact you if anything else is required.')).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryAllByRole('button')).toHaveLength(0);
+    expect(within(screen.getByRole('main')).queryAllByRole('textbox')).toHaveLength(0);
     expect(screen.queryByText(/activated/i)).toBeNull();
   });
 });
@@ -205,13 +210,13 @@ describe('Freelancer banking and edits', () => {
 
   it('contract declined can be reopened', async () => {
     const { user } = start('contract-decline');
-    await screen.findByRole('heading', { name: 'Merchant contract' });
+    await screen.findByRole('heading', { name: 'Merchant agreement' });
     await user.click(screen.getByRole('button', { name: 'Decline' }));
-    const dialog = screen.getByText('Decline the contract?').closest('.mb-alert') as HTMLElement;
+    const dialog = screen.getByText('Decline the agreement?').closest('.mb-alert') as HTMLElement;
     await user.click(within(dialog).getByRole('button', { name: 'Decline' }));
     expect(await screen.findByRole('heading', { name: OUTCOME_COPY.CONTRACT_DECLINED.title })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Review the contract again' }));
-    expect(await screen.findByRole('heading', { name: 'Merchant contract' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Review the agreement again' }));
+    expect(await screen.findByRole('heading', { name: 'Merchant agreement' })).toBeInTheDocument();
   });
 
   it('restart clears the demo', async () => {
@@ -231,7 +236,7 @@ describe('Prototype Controls: Page Scenarios per screen, Internal view separate'
     expect(pageOptions()).toEqual(['New applicant', 'Saved application, same mobile → resume', 'Application exists under another mobile', 'Already a Madfu merchant']);
     await user.click(screen.getByRole('button', { name: 'Send code' }));
     await screen.findByLabelText('Verification code');
-    expect(pageOptions()).toEqual(['Verified', 'Incorrect code', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
+    expect(pageOptions()).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
     expect(within(controls()).queryByText(/Nafath|IBAN|Category|commission|certificate/)).toBeNull();
     await user.click(within(controls()).getByRole('button', { name: 'Incorrect code' }));
     expect(await screen.findByText('Incorrect code. 2 attempts left.')).toBeInTheDocument();
@@ -246,8 +251,8 @@ describe('Prototype Controls: Page Scenarios per screen, Internal view separate'
 
   it('contract page offers only accept / decline; the global scenario list is gone from inside the journey', async () => {
     start('contract-accept');
-    await screen.findByRole('heading', { name: 'Merchant contract' });
-    expect(pageOptions()).toEqual(['Contract accepted', 'Contract declined']);
+    await screen.findByRole('heading', { name: 'Merchant agreement' });
+    expect(pageOptions()).toEqual(['Normal contract', 'Contract declined']);
     expect(within(controls()).queryByText(/Add 6-month|Resume after Nafath verified/)).toBeNull();
   });
 
@@ -257,6 +262,61 @@ describe('Prototype Controls: Page Scenarios per screen, Internal view separate'
     await controlsTab(user, 'Start demo');
     await user.click(within(controls()).getByRole('button', { name: 'Happy path — registered business' }));
     expect(await screen.findByRole('heading', { name: KYB_TITLE })).toBeInTheDocument();
+  });
+});
+
+describe('Commercial Offer: optional better offer, collapsed by default', () => {
+  it('collapsed by default and marked optional; Yes expands the optional uploads; Not now keeps it collapsed', async () => {
+    const { user } = start('com-standard');
+    await screen.findByRole('heading', { name: 'Your commercial offer' });
+    const better = screen.getByRole('region', { name: 'Better commercial offer' });
+    expect(within(better).getByText('Optional')).toBeInTheDocument();
+    expect(within(better).getByText('Interested in a better commercial offer?')).toBeInTheDocument();
+    expect(within(better).queryByRole('button', { name: /Add file/ })).toBeNull();
+    await user.click(within(better).getByRole('button', { name: 'Not now' }));
+    expect(within(better).queryByRole('button', { name: /Add file/ })).toBeNull();
+    await user.click(within(better).getByRole('button', { name: 'Yes, tell me more' }));
+    expect(within(better).getAllByRole('button', { name: /Add file/ })).toHaveLength(2);
+    expect(within(better).getByText(/your onboarding continues with the standard offer without these documents/)).toBeInTheDocument();
+    expect(within(better).getByText('Supporting document')).toBeInTheDocument();
+  });
+
+  it('uploading optional evidence requests a Commercial review; the standard offer stays and Continue works', async () => {
+    const { user } = start('com-standard');
+    await screen.findByRole('heading', { name: 'Your commercial offer' });
+    const standard = screen.getByText('Your standard offer').closest('div')!.textContent;
+    await user.click(screen.getByRole('button', { name: 'Yes, tell me more' }));
+    await user.click(screen.getAllByRole('button', { name: /Add file/ })[0]);
+    expect(await screen.findByText(/Review requested · standard offer applies/)).toBeInTheDocument();
+    expect(screen.getByText('Your standard offer').closest('div')!.textContent).toBe(standard);
+    await user.click(screen.getByRole('checkbox', { name: /^12 months/ }));
+    await user.click(screen.getByRole('button', { name: 'Continue with this offer' }));
+    await screen.findByRole('heading', { name: 'Review your application' });
+    await controlsTab(user, 'Internal view');
+    expect(within(controls()).getByText('COMMERCIAL_PRICING_REVIEW')).toBeInTheDocument();
+    expect(within(controls()).getByText('Commercial pricing review requested')).toBeInTheDocument();
+  });
+
+  it('skipping the optional section does not block and shows no warning', async () => {
+    const { user } = start('com-standard');
+    await screen.findByRole('heading', { name: 'Your commercial offer' });
+    await user.click(screen.getByRole('button', { name: 'Continue with this offer' }));
+    expect(await screen.findByRole('heading', { name: 'Review your application' })).toBeInTheDocument();
+    expect(screen.getByText('Everything is ready')).toBeInTheDocument();
+  });
+});
+
+describe('Prototype Controls visible by default, collapsible, reviewer hint', () => {
+  it('controls and the prototype-mode hint show on first entry; they can be collapsed and reopened', async () => {
+    const { user } = await open();
+    expect(controls()).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(/Prototype mode/);
+    expect(within(controls()).getByText(/Prototype tip:/)).toBeInTheDocument();
+    expect(within(controls()).getByText('Prototype only')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hide Prototype Controls' }));
+    expect(screen.queryByRole('complementary', { name: 'Prototype Controls' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Show controls' }));
+    expect(controls()).toBeInTheDocument();
   });
 });
 

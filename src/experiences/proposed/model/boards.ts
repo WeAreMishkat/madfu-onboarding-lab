@@ -217,12 +217,12 @@ const D: JourneyMap = {
 
 const E: JourneyMap = {
   id: 'commercial', large: true, title: `E · ${S(5)}`,
-  caption: 'All commercial configuration lives here, not in the Contract. Standard commission comes from the pricing matrix; declared revenue never lowers it automatically.',
+  caption: 'All commercial configuration lives here, not in the Contract. Primary path: standard offer → Continue. The better-offer question is collapsed and optional; declared revenue never lowers the commission automatically.',
   nodes: [
-    { id: 'page', kind: 'screen', label: S(5), detail: 'Standard commission · optional evidence · payment plans · summary', col: 0, row: 1, step: 'commercial' },
+    { id: 'page', kind: 'screen', label: S(5), detail: 'Standard offer · included + optional plans · summary · Continue', col: 0, row: 1, step: 'commercial' },
     { id: 'price', kind: 'backend', label: 'Pricing matrix', detail: 'Category / subcategory → standard rate and plan rates', col: 1, row: 1 },
     { id: 'plans', kind: 'screen', label: 'Payment plans', detail: `${BASE_PLANS.join(' + ')} months included · ${OPTIONAL_PLANS.join(' / ')} optional multi-select`, col: 2, row: 1, step: 'commercial' },
-    { id: 'ev', kind: 'screen', label: 'Optional better-rate evidence', detail: 'Never blocks; skip = standard rate', col: 1, row: 2, step: 'commercial' },
+    { id: 'ev', kind: 'screen', label: 'Better offer? (collapsed)', detail: 'Yes → optional documents · Not now → stays collapsed · never blocks', col: 1, row: 2, step: 'commercial' },
     { id: 'rev', kind: 'manual', label: 'Commercial pricing review', detail: 'Internal; onboarding does not wait', col: 2, row: 2 },
     { id: 'sum', kind: 'screen', label: 'Offer summary → Continue', col: 3, row: 1, step: 'commercial' },
     { id: 'next', kind: 'connector', label: `→ ${S(6)}`, col: 4, row: 1, step: 'review' },
@@ -230,7 +230,7 @@ const E: JourneyMap = {
     { id: 'docs', kind: 'open', label: 'PRODUCT/COMMERCIAL DECISION: evidence documents', col: 1, row: 3 }
   ],
   edges: [
-    { from: 'page', to: 'price' }, { from: 'price', to: 'plans' }, { from: 'page', to: 'ev', dashed: true }, { from: 'ev', to: 'rev', label: 'uploaded' },
+    { from: 'page', to: 'price' }, { from: 'price', to: 'plans' }, { from: 'page', to: 'ev', dashed: true }, { from: 'ev', to: 'rev', label: 'files added' },
     { from: 'plans', to: 'sum' }, { from: 'sum', to: 'next' }
   ]
 };
@@ -256,12 +256,12 @@ const F: JourneyMap = {
 
 const G: JourneyMap = {
   id: 'contract', large: true, title: `G · ${S(7)} and ${S(8)}`,
-  caption: 'The contract page contains the contract only: agreed commission and plans are shown as contract content, never selected here. Nafath is not the contract provider.',
+  caption: 'The contract page contains the contract only, with one action: Agree & Submit records acceptance and submits the application (no checkbox, no second Submit). Commission and plans are shown as contract content. Nafath is not the contract provider.',
   nodes: [
     { id: 'review', kind: 'screen', label: S(6), col: 0, row: 1, step: 'review' },
     { id: 'gate', kind: 'decision', label: 'Contract gate', detail: 'Nafath · person / certificate', col: 1, row: 1 },
     { id: 'gaten', kind: 'note', label: 'Gate: Nafath verified · authorised person (CR) or selected certificate (FL) · no unresolved activity conflict · Freelancer bank-link rule flag (compliance decision).', col: 0, row: 3 },
-    { id: 'contract', kind: 'screen', label: S(7), detail: 'Read · accept / decline · back', col: 2, row: 1, step: 'contract' },
+    { id: 'contract', kind: 'screen', label: S(7), detail: 'Read · one action: Agree & Submit · decline · no checkbox', col: 2, row: 1, step: 'contract' },
     { id: 'sub', kind: 'outcome', label: 'Submitted', detail: O('SUBMITTED'), col: 3, row: 1, step: 'outcome', outcome: 'SUBMITTED' },
     { id: 'bank', kind: 'outcome', label: 'Submitted · banking pending', detail: 'Freelancer bank not linked', col: 3, row: 2, outcome: 'SUBMITTED_BANKING_PENDING' },
     { id: 'dec', kind: 'outcome', label: 'Contract declined', detail: 'Not submitted; resumable', col: 3, row: 0, outcome: 'CONTRACT_DECLINED' },
@@ -270,7 +270,7 @@ const G: JourneyMap = {
   ],
   edges: [
     { from: 'review', to: 'gate' }, { from: 'gate', to: 'contract', label: 'pass' }, { from: 'gate', to: 'mv', label: 'blocked' },
-    { from: 'contract', to: 'sub', label: 'accept' }, { from: 'contract', to: 'bank', label: 'FL not linked' }, { from: 'contract', to: 'dec', label: 'decline' },
+    { from: 'contract', to: 'sub', label: 'Agree' }, { from: 'contract', to: 'bank', label: 'FL not linked' }, { from: 'contract', to: 'dec', label: 'decline' },
     { from: 'dec', to: 'contract', dashed: true }
   ]
 };
