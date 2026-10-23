@@ -5,6 +5,7 @@ import type { Person } from '../model/types';
 import { useProposed, useStepFocus } from '../store';
 import { Alert, Button, Spinner, StepHeader } from '../ui/components';
 import { IconCheck, IconRefresh } from '../ui/icons';
+import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 import { useAutoRun } from './useAutoRun';
 
@@ -33,7 +34,7 @@ export function PersonsStep() {
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow="Step 3 of 6" title="Who is authorised for this business?"
+      <StepHeader eyebrow={stageEyebrow('persons')} title="Who is authorised for this business?"
         description="Choose yourself from the people on the Commercial Registration. You'll confirm your identity with Nafath next." titleRef={titleRef} />
 
       <div aria-live="polite" className="mb-stack">

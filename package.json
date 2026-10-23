@@ -17,6 +17,7 @@
     "smoke:deployed": "node scripts/smoke-deployed.mjs",
     "build:pages": "tsc --noEmit -p tsconfig.json && LAB_BASE=/madfu-onboarding-lab/ vite build",
     "pdf": "node scripts/build-pdf.mjs",
+    "docs": "node scripts/build-docs.mjs",
     "e2e": "playwright test",
     "serve:pages": "node scripts/serve-pages.mjs --port 4799 --base /madfu-onboarding-lab/"
   },

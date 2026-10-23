@@ -18,48 +18,34 @@ An interactive product prototype for comparing merchant onboarding journeys side
 | `/tabby` | Tabby (benchmark) | Research evidence up to 2026-10-14 |
 | `/tamara` | Tamara (benchmark) | Research evidence up to 2026-10-14 |
 | `/madfu/current` | Madfu Current | Research evidence (TEST walks, 2026-10-12/13) |
-| `/madfu/proposed` | Madfu Proposed | Wireframe system specification, 15 Oct 2026 |
-| `/madfu/proposed?view=maps` | Journey maps (overview, registered business, Freelancer, manual review) | Same model as the prototype |
-| `/madfu/proposed?view=rules` | Decision tables, assumptions, pending decisions | Computed from the prototype rules |
+| `/madfu/proposed` | Madfu Proposed | KYB-first journey update, 23 Oct 2026 (supersedes the 15 Oct wireframe specification where they differ) |
+| `/madfu/proposed?view=boards` | Simple and Detailed Master Boards | Same model as the prototype |
+| `/madfu/proposed?view=rules` | Rules, decision tables, open decisions | Computed from the prototype rules |
 | `/compare` | Comparison: Current vs Proposed, or all four | No scores, no ranking |
 
-The wireframes PDF is at [`Madfu_Merchant_Onboarding_Wireframes.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Merchant_Onboarding_Wireframes.pdf). It is generated from the same components and model as the app (`npm run pdf`).
+Documents, all generated from the same model and components as the app:
+- [`Madfu_Proposed_Simple_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Simple_Master_Board.pdf) (1 page)
+- [`Madfu_Proposed_Detailed_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Detailed_Master_Board.pdf) (one panel per area)
+- [`Madfu_Merchant_Onboarding_Wireframes.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Merchant_Onboarding_Wireframes.pdf) (every screen, boards, rule tables)
+- [`docs/MADFU_PROPOSED_JOURNEY.md`](docs/MADFU_PROPOSED_JOURNEY.md) (product rules, open decisions, scenarios)
 
 ## Madfu Proposed in brief
 
-**Entry and verification**
-- One entry page: applicant type, CR number (registered business) or National ID (Freelancer), annual revenue, mobile.
-- Identity and duplicate checks run first, before mobile matching. A reused mobile alone never rejects.
-- Then an SMS code: 3 attempts, expiry, resend.
+**Principle:** ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification unnecessarily, and do not lose a commercially valid lead.
 
-**Routing after the code**
-- A registered business **below SAR 100,000** or **above SAR 20,000,000** becomes a Sales lead.
-- Freelancers self-onboard at every revenue level.
-- The SAR 100,000 boundary is provisional and configurable.
+**Eight stages:** 1 Know Your Business · 2 Identify & Verify · 3 Business Verification · 4 Business & Banking Details · 5 Commercial Offer · 6 Review · 7 Contract · 8 Submit / Outcome.
 
-**Self-onboarding**
-- **Category screening** on Madfu's own taxonomy (fixture catalogue): allowed, restricted, CR-only or manual review. A restricted category ends neutrally before any paid check.
-- **Registered business:**
-  1. CR verification (mock adapter): valid, expired (continues with a flag), not found, or unavailable / error (bounded retry).
-  2. Choose a masked authorised person; companies are never offered.
-  3. Nafath: 2 attempts per application, shared across people.
-- **Freelancer:** Nafath with the entry National ID, then retrieved freelance certificates. Two Nafath failures lead to a manual route: certificate number by hand and no contract.
-- **Business details:**
-  - IBAN only: the bank is derived; no SWIFT, beneficiary or certificate. Ownership is checked twice, then the application is flagged for review.
-  - VAT: Yes / No.
-  - Sales channel with website and / or Google Maps link; branch count optional.
-  - No Source of Revenue or Income and no document uploads.
-- **Review, agreement, submission:**
-  - Review with section-level Edit.
-  - A generic agreement acceptance, separate from Nafath and available only when Nafath is verified.
-  - The application is then submitted for review. It is never shown as activated.
+- **Know Your Business first:** applicant type (CR / Freelancer with certificate / Freelancer without certificate), category, subcategory, annual revenue, sales channel, website and / or Google Maps link (validated; social-media and WhatsApp links rejected). No CR, ID, mobile or OTP yet. A configurable eligibility engine decides: eligible, Sales lead, temporarily not eligible, not eligible, or manual review. Freelancers without a certificate become leads.
+- **Identify & Verify:** CR / Unified Number or National ID + mobile, duplicate / existing checks, SMS OTP. The Stage-1 record is then linked to the new application and never asked again.
+- **Business Verification:** government CR data (status, age ≤ 3 months = temporarily not eligible, entity, activities, National Address), category ↔ activity reconciliation, authorised person + Nafath; for Freelancers Nafath + retrieved certificates (zero documents).
+- **Business & Banking:** only what is still missing. Freelancers are asked whether the bank account is linked to their certificate; "No" skips the IBAN and continues with "banking setup required".
+- **Commercial Offer:** standard commission from the pricing matrix (never lowered by declared revenue), optional better-rate evidence that never blocks, 3 and 4-month plans always included, 6 / 9 / 12 optional.
+- **Review** with section Edit and dependency invalidation; **Contract** only (plans shown as contract content); **Submit / Outcome** with clean user messages and internal reason codes.
+- **Resume:** Save & exit sends a Continue Application link; it opens the OTP screen; after the code the applicant lands on the first incomplete screen. Stored successful checks (CR, people, Nafath, certificates, IBAN) are reused: an ordinary resume costs one OTP.
 
-**Application vs account:** applicants work on an application; a merchant account is set up only after approval.
+**Prototype Controls** (not merchant UI): 60 numbered scenarios plus extras, simulated provider answers, and an Internal state view showing checks reused / invalidated, the expected next paid call, flags, eligibility rule version and commercial state.
 
-**Prototype Controls** (a separate panel, not merchant UI) offer:
-- 39 scenarios, including all 24 required ones
-- simulated backend answers for every integration
-- the internal status and review flags
+All values are synthetic. Open product and compliance decisions are listed in the app (Rules & decisions) and in the generated doc.
 
 ## Run locally
 
@@ -75,7 +61,8 @@ npm test               # Vitest + Testing Library (unit, rules, journeys)
 npm run e2e            # Playwright against a GitHub-Pages-like server (deep links, refresh, PDF)
 npm run build          # type-check + production build (base "/")
 npm run build:pages    # production build for https://wearemishkat.github.io/madfu-onboarding-lab/
-npm run pdf            # regenerate public/Madfu_Merchant_Onboarding_Wireframes.pdf
+npm run pdf            # regenerate the wireframes and both master-board PDFs in public/
+npm run docs           # regenerate docs/MADFU_PROPOSED_JOURNEY.md (a test fails if it is stale)
 ```
 
 ## Architecture
@@ -87,9 +74,9 @@ Browser → React 19 + TypeScript (Vite) → deterministic in-browser mock engin
 - `src/engine/`: declarative flow engine (screens, conditional fields, branching, simulated latency) used by Tabby, Tamara and Madfu Current.
 - `src/experiences/<id>/`: one folder per experience, with its comparison facts and tests.
 - `src/experiences/proposed/`: Madfu Proposed.
-  - `model/` holds pure rules and transitions, mock adapters, scenarios, decision tables and journey-map data.
+  - `model/` holds the single journey model: rules (`eligibility`, `urls`, `government`, `activity`, `pricing`, `verifications`), transitions (`state`), mock adapters, scenarios, boards, decision tables and the docs renderer.
   - `steps/` holds the screens; `ui/` holds the components.
-- `src/pages/PrintWireframes.tsx`: print-only route used to build the PDF.
+- `src/pages/PrintWireframes.tsx`: print-only routes used to build the PDFs (`/print/wireframes`, `/print/board-simple`, `/print/board-detailed`).
 - Persistence: the Proposed application is kept in `localStorage`, so refresh and resume work. **Restart** clears it.
 
 ## Deployment

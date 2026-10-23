@@ -1,63 +1,57 @@
 import type { ComparisonProfile } from '@/compare/types';
+import { STAGES } from './model/config';
 
-/** Madfu Proposed per the 2026-10-15 wireframe specification. Every item is a design, not an observation. */
+/** Madfu Proposed per the KYB-first journey update (2026-10-23). Every item is a design, not an observation. */
 export const proposedComparison: ComparisonProfile = {
   experienceId: 'madfu-proposed',
   name: 'Madfu Proposed',
-  stages: [
-    { label: 'One entry page: applicant type, CR / National ID, revenue, mobile', status: 'PROPOSED' },
-    { label: 'Identity and duplicate check (before mobile matching)', status: 'PROPOSED' },
-    { label: 'SMS code', status: 'PROPOSED' },
-    { label: 'Routing: CR below SAR 100K / above SAR 20M → Sales lead', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Category screening (Madfu taxonomy)', status: 'PROPOSED' },
-    { label: 'CR verification → authorised person → Nafath', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Nafath → retrieved freelance certificates', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Business details: IBAN, VAT, sales channel', status: 'PROPOSED' },
-    { label: 'Review with section Edit', status: 'PROPOSED' },
-    { label: 'Agreement (generic acceptance), then Submit', status: 'PROPOSED', note: 'Only when Nafath is verified; otherwise manual verification' }
-  ],
+  stages: STAGES.map((s) => ({
+    label: `${s.n}. ${s.label}`,
+    status: 'PROPOSED' as const,
+    note: s.id === 'kyb' ? 'First page: eligibility before CR, ID, mobile or OTP'
+      : s.id === 'commercial' ? 'Commission and payment plans live here, not in the contract'
+        : s.id === 'contract' ? 'Contract only; available when Nafath is verified'
+          : undefined
+  })),
   inputs: [
-    { label: 'Applicant type', status: 'PROPOSED' },
-    { label: 'Commercial Registration Number', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'National ID Number (no certificate number at entry)', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Annual revenue (3 bands)', status: 'PROPOSED' },
-    { label: 'Mobile + SMS code', status: 'PROPOSED' },
-    { label: 'Business category + subcategory', status: 'PROPOSED' },
+    { label: 'Applicant type: CR / Freelancer with certificate / Freelancer without certificate', status: 'PROPOSED' },
+    { label: 'Category + subcategory, annual revenue, sales channel', status: 'PROPOSED' },
+    { label: 'Website (online) and / or Google Maps link (offline), validated', status: 'PROPOSED' },
+    { label: 'CR / Unified Number + mobile + SMS code', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'National ID + mobile + SMS code', appliesTo: 'Freelancer', status: 'PROPOSED' },
     { label: 'Select authorised person (masked list)', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Select freelance certificate', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'IBAN only (bank derived)', status: 'PROPOSED' },
-    { label: 'VAT registered? Yes / No (+ number for Freelancers)', status: 'PROPOSED' },
-    { label: 'Sales channel + website / Google Maps link; branches optional', status: 'PROPOSED' },
-    { label: 'Agreement acceptance', status: 'PROPOSED' }
+    { label: 'Select Freelancer Certificate', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Bank linked to certificate? Yes / No', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'IBAN only (bank derived); VAT yes / no; branches optional', status: 'PROPOSED' },
+    { label: 'Optional plans 6 / 9 / 12 months; optional better-rate evidence', status: 'PROPOSED' },
+    { label: 'Contract acceptance', status: 'PROPOSED' }
   ],
   uploads: [
-    { label: 'None', status: 'PROPOSED', note: 'No proof of sales, VAT certificate, ID, IBAN certificate, beneficiary or SWIFT' }
+    { label: 'None in the standard path', status: 'PROPOSED', note: 'Freelancers upload nothing; only optional better-rate evidence in the Commercial Offer' }
   ],
   automation: [
-    { label: 'Identity / duplicate detection before any account exists', status: 'PROPOSED' },
-    { label: 'Revenue routing after the SMS code', status: 'PROPOSED' },
-    { label: 'Category screening before paid checks', status: 'PROPOSED' },
-    { label: 'CR details and associated individuals retrieved (mock provider)', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Freelance certificates retrieved after Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Bank name derived from the IBAN', status: 'PROPOSED' },
-    { label: 'VAT details retrieved', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Saved application, resumable after refresh or later', status: 'PROPOSED' }
+    { label: 'Eligibility engine before any external cost', status: 'PROPOSED' },
+    { label: 'Duplicate / existing application detection; KYB snapshot linked after OTP', status: 'PROPOSED' },
+    { label: 'CR data, activities, National Address retrieved; government rules evaluated', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'Category ↔ registered activity reconciliation', status: 'PROPOSED' },
+    { label: 'Freelancer certificates retrieved after Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Verified checks reused: resume costs one OTP', status: 'PROPOSED' },
+    { label: 'Standard commission from the pricing matrix', status: 'PROPOSED' }
   ],
   branches: [
-    { label: 'Registered business vs Freelancer from one entry page', status: 'PROPOSED' },
-    { label: 'Existing merchant / duplicate identity / saved application', status: 'PROPOSED' },
-    { label: 'CR revenue: below 100K and above 20M → Sales lead; 100K–20M → self-onboarding', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Freelancer: self-onboarding at every revenue level', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Category: allowed / restricted / CR-only / manual review', status: 'PROPOSED' },
-    { label: 'Nafath failed twice → manual verification, no contract', status: 'PROPOSED' },
-    { label: 'No eligible individual → manual authority check', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Certificates: one / several / none / unavailable / mismatch', appliesTo: 'Freelancer', status: 'PROPOSED' }
+    { label: 'Not eligible / temporarily not eligible at Stage 1, before cost', status: 'PROPOSED' },
+    { label: 'Freelancer without certificate → lead', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'CR revenue outside SAR 100K–20M → lead / Sales', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'CR ≤ 3 months, expired, suspended, violation', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'Continue link → OTP → last valid stage', status: 'PROPOSED' },
+    { label: 'Bank not linked → banking setup required (continue)', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Nafath failed twice → manual verification, no contract', status: 'PROPOSED' }
   ],
   verification: [
-    { label: 'SMS code (3 attempts)', status: 'PROPOSED' },
-    { label: 'CR status (expired allowed with a flag; not found stops)', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'SMS code (3 attempts); required on every resume', status: 'PROPOSED' },
+    { label: 'Government CR data (age, status, entity, activities, address)', appliesTo: 'Registered business', status: 'PROPOSED' },
     { label: 'Nafath identity and authority (2 attempts per application)', status: 'PROPOSED' },
-    { label: 'IBAN ownership vs business or individual (2 attempts)', status: 'PROPOSED' },
-    { label: 'Agreement acceptance, separate from Nafath', status: 'PROPOSED' }
+    { label: 'IBAN ownership vs business, or individual + certificate (2 attempts)', status: 'PROPOSED' },
+    { label: 'Contract acceptance, separate from Nafath', status: 'PROPOSED' }
   ]
 };

@@ -1,29 +1,38 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { MadfuBusinessLockup } from '@/lab/BrandMarks';
 import { DecisionTable } from '@/experiences/proposed/DecisionTables';
-import { JourneyMapSvg, MapLegend } from '@/experiences/proposed/JourneyMaps';
-import { UX_HANDOVER_NOTE } from '@/experiences/proposed/model/config';
-import { ASSUMPTIONS, DECISION_TABLES, PENDING_DECISIONS } from '@/experiences/proposed/model/decisions';
-import { MAPS, splitMap } from '@/experiences/proposed/model/flowmap';
-import { SCENARIOS } from '@/experiences/proposed/model/scenarios';
-import { SNAPSHOTS, type Snapshot } from '@/experiences/proposed/print/snapshots';
+import { BoardLegend, BoardSvg, OpenItemsList } from '@/experiences/proposed/MasterBoards';
+import { DETAILED_BOARD, REUSE_NOTE, SIMPLE_BOARD, splitMap, type JourneyMap } from '@/experiences/proposed/model/boards';
+import { STAGES, UX_HANDOVER_NOTE } from '@/experiences/proposed/model/config';
+import { ASSUMPTIONS, DECISION_TABLES, OTHER_OPEN_POINTS } from '@/experiences/proposed/model/decisions';
+import { REQUIRED_COUNT, SCENARIOS } from '@/experiences/proposed/model/scenarios';
+import { SNAPSHOTS, type Snapshot, type SnapshotSection } from '@/experiences/proposed/print/snapshots';
 import { ProposedFrame } from '@/experiences/proposed/ProposedPage';
 import { ProposedProvider } from '@/experiences/proposed/store';
 import '@/experiences/proposed/proposed.css';
 import '@/styles/print.css';
 
 /**
- * Print-only route for Madfu_Merchant_Onboarding_Wireframes.pdf. Every screen is rendered by the
- * same step components as the prototype, every map and table from the same model.
- * Page size 1600 × 1300 px (scripts/build-pdf.mjs).
+ * Print-only routes. Every screen is rendered by the same step components as the prototype; every
+ * board and table from the same model.
+ *   /print/wireframes      Madfu_Merchant_Onboarding_Wireframes.pdf     1600 × 1300 px pages
+ *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      2200 × 1150 px
+ *   /print/board-detailed  Madfu_Proposed_Detailed_Master_Board.pdf    2000 × 1250 px pages
  */
-const PAGE_W = 1600;
-const PAGE_H = 1300;
-const SPEC_VERSION = 'Wireframe system specification, 15 Oct 2026';
+const SPEC_VERSION = 'KYB-first journey update, 23 Oct 2026 (supersedes the 15 Oct wireframe specification where they differ)';
 
-function Page({ section, title, caption, children, n }: { section: string; title: string; caption?: string; children: ReactNode; n: number }) {
+function usePrintReady(title: string) {
+  useEffect(() => {
+    document.title = title;
+    let live = true;
+    void document.fonts.ready.then(() => setTimeout(() => { if (live) document.body.dataset.printReady = '1'; }, 300));
+    return () => { live = false; };
+  }, [title]);
+}
+
+function Page({ section, title, caption, children, n, w = 1600, h = 1300, footer = 'Madfu Merchant Onboarding · Wireframes' }: { section: string; title: string; caption?: string; children: ReactNode; n: number; w?: number; h?: number; footer?: string }) {
   return (
-    <section className="pw-page" style={{ width: PAGE_W, height: PAGE_H }}>
+    <section className="pw-page" style={{ width: w, height: h }}>
       <header className="pw-head">
         <div>
           <p className="pw-section">{section}</p>
@@ -33,7 +42,7 @@ function Page({ section, title, caption, children, n }: { section: string; title
         <span className="pw-badge">Proposed / Product Design</span>
       </header>
       <div className="pw-body">{children}</div>
-      <footer className="pw-foot"><span>Madfu Merchant Onboarding · Wireframes</span><span>{n}</span></footer>
+      <footer className="pw-foot"><span>{footer}</span><span>{n}</span></footer>
     </section>
   );
 }
@@ -56,7 +65,7 @@ function Fit({ children, maxH }: { children: ReactNode; maxH: number }) {
 function ScreenPage({ snap, n, section }: { snap: Snapshot; n: number; section: string }) {
   return (
     <Page section={section} title={snap.title} caption={snap.caption} n={n}>
-      <Fit maxH={PAGE_H - 210}>
+      <Fit maxH={1300 - 210}>
         <ProposedProvider initial={snap.state()} isStatic previewErrors={snap.errors}>
           <div className="mb-root pw-root"><ProposedFrame /></div>
         </ProposedProvider>
@@ -65,38 +74,36 @@ function ScreenPage({ snap, n, section }: { snap: Snapshot; n: number; section: 
   );
 }
 
-const SECTION_LABEL: Record<Snapshot['section'], string> = {
-  entry: 'Entry and SMS code',
-  cr: 'Registered business screens',
-  fl: 'Freelancer screens',
-  manual: 'Manual routes',
-  outcomes: 'Contract and outcomes',
+const SECTION_LABEL: Record<SnapshotSection, string> = {
+  kyb: `Stage 1 · ${STAGES[0].label}`,
+  identify: `Stage 2 · ${STAGES[1].label} and resume`,
+  cr: `Stage 3 · ${STAGES[2].label}: registered business`,
+  fl: `Stage 3 · ${STAGES[2].label}: Freelancer`,
+  banking: `Stage 4 · ${STAGES[3].label}`,
+  commercial: `Stage 5 · ${STAGES[4].label}`,
+  review: `Stage 6 · ${STAGES[5].label}`,
+  contract: `Stages 7–8 · ${STAGES[6].label} and ${STAGES[7].label}`,
   validation: 'Validation and error examples'
 };
 
-export default function PrintWireframes() {
-  useEffect(() => {
-    document.title = 'Madfu_Merchant_Onboarding_Wireframes';
-    let live = true;
-    void document.fonts.ready.then(() => setTimeout(() => { if (live) document.body.dataset.printReady = '1'; }, 300));
-    return () => { live = false; };
-  }, []);
+function MapBlock({ map, splitAt }: { map: JourneyMap; splitAt?: number }) {
+  const parts = (splitAt !== undefined ? splitMap(map, splitAt) : null) ?? [map];
+  return <>{parts.map((p) => <div key={p.title} className="pw-map"><p className="pw-map-part">{parts.length > 1 ? p.title : ''}</p><BoardSvg map={p} /></div>)}</>;
+}
 
+export default function PrintWireframes() {
+  usePrintReady('Madfu_Merchant_Onboarding_Wireframes');
   let n = 0;
   const next = () => ++n;
-  const map = (id: string) => MAPS.find((m) => m.id === id)!;
-  const snaps = (s: Snapshot['section']) => SNAPSHOTS.filter((x) => x.section === s);
-  const required = SCENARIOS.filter((s) => s.required).length;
-
   const pages: ReactNode[] = [];
   pages.push(
-    <section key="cover" className="pw-page pw-cover" style={{ width: PAGE_W, height: PAGE_H }}>
+    <section key="cover" className="pw-page pw-cover" style={{ width: 1600, height: 1300 }}>
       <MadfuBusinessLockup height={40} />
       <h1>Madfu Merchant Onboarding</h1>
       <p className="pw-cover-sub">Wireframes · Proposed / Product Design</p>
       <dl className="pw-cover-meta">
         <div><dt>Source of truth</dt><dd>{SPEC_VERSION}</dd></div>
-        <div><dt>Prototype</dt><dd>Merchant Onboarding Lab · Madfu Proposed ({SCENARIOS.length} scenarios, {required} required)</dd></div>
+        <div><dt>Prototype</dt><dd>Merchant Onboarding Lab · Madfu Proposed ({SCENARIOS.length} scenarios, {REQUIRED_COUNT} required)</dd></div>
         <div><dt>Data</dt><dd>Synthetic. Integrations are simulated. Not production behaviour.</dd></div>
       </dl>
       <span className="pw-hidden">{next()}</span>
@@ -105,53 +112,95 @@ export default function PrintWireframes() {
   pages.push(
     <Page key="principles" section="Introduction" title="Principles" n={next()}>
       <ol className="pw-principles">
-        <li><strong>Ask only what is needed now.</strong> Retrieve everything else from verified sources.</li>
-        <li><strong>Eligibility first.</strong> Revenue routing and category screening happen before any paid verification.</li>
-        <li><strong>Application, not account.</strong> Applicants work on an application; the merchant account and password are set up only after approval.</li>
-        <li><strong>Identity before mobile.</strong> CR / National ID duplicates are detected first; reusing a mobile never rejects on its own.</li>
-        <li><strong>Backend-first verification.</strong> No proof of sales, VAT certificate, ID upload, IBAN certificate, beneficiary or SWIFT.</li>
-        <li><strong>Nafath is identity, not signature.</strong> The agreement is a separate step, available only after Nafath verification.</li>
-        <li><strong>Freelancers self-onboard at every revenue level.</strong> Registered businesses below SAR 100K or above SAR 20M become Sales leads.</li>
-        <li><strong>Clear, recoverable states.</strong> Back, Edit, resume and bounded retries; internal reasons are never shown to applicants.</li>
+        <li><strong>Ask cheaply first, verify expensively later.</strong> Know Your Business decides eligibility before any CR, ID, mobile, OTP or paid check.</li>
+        <li><strong>Never ask twice.</strong> Stage-1 answers are linked to the application after OTP and shown, not re-asked.</li>
+        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused until their dependent data changes; resume normally costs one OTP.</li>
+        <li><strong>Do not lose a valid lead.</strong> Freelancers without a certificate and out-of-band registered businesses become leads; a missing bank link becomes a follow-up.</li>
+        <li><strong>Application, not account.</strong> The merchant account is set up only after approval.</li>
+        <li><strong>Commercial terms before the contract.</strong> Commission and payment plans are chosen in the Commercial Offer; the Contract only shows them.</li>
+        <li><strong>Internal reasons stay internal.</strong> Applicants see clean, generic outcomes; reason codes and flags are for the team.</li>
       </ol>
     </Page>
   );
-  const mapPage = (id: string, section: string) => {
-    const m = map(id);
-    const parts = splitMap(m, 6) ?? [m];
-    return (
-      <Page key={`map-${id}`} section={section} title={m.title} caption={m.caption} n={next()}>
-        <MapLegend />
-        {parts.map((p) => <div key={p.title} className="pw-map"><p className="pw-map-part">{parts.length > 1 ? p.title : ''}</p><JourneyMapSvg map={p} /></div>)}
-      </Page>
-    );
-  };
-  pages.push(mapPage('overview', 'Journey overview'));
-  snaps('entry').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.entry} />));
-  pages.push(mapPage('cr', 'Registered business flow'));
-  snaps('cr').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.cr} />));
-  pages.push(mapPage('fl', 'Freelancer flow'));
-  snaps('fl').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.fl} />));
-  pages.push(mapPage('manual', 'Manual routes'));
-  snaps('manual').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.manual} />));
-  snaps('outcomes').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.outcomes} />));
-  snaps('validation').forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL.validation} />));
+  pages.push(
+    <Page key="simple" section="Journey overview" title={SIMPLE_BOARD.title} caption={REUSE_NOTE} n={next()}>
+      <BoardLegend />
+      <MapBlock map={SIMPLE_BOARD} />
+    </Page>
+  );
+  const snaps = (s: SnapshotSection) => SNAPSHOTS.filter((x) => x.section === s);
+  const panel = (id: string) => DETAILED_BOARD.find((m) => m.id === id)!;
+  const order: Array<[SnapshotSection, string[]]> = [
+    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr']], ['fl', ['fl']], ['banking', ['banking']], ['commercial', ['commercial']], ['review', ['review']], ['contract', ['contract']], ['validation', []]
+  ];
+  for (const [section, panels] of order) {
+    for (const id of panels) {
+      const m = panel(id);
+      pages.push(<Page key={`map-${id}`} section={SECTION_LABEL[section]} title={m.title} caption={m.caption} n={next()}><BoardLegend /><MapBlock map={m} /></Page>);
+    }
+    snaps(section).forEach((s) => pages.push(<ScreenPage key={s.id} snap={s} n={next()} section={SECTION_LABEL[section]} />));
+  }
   DECISION_TABLES.forEach((t) => pages.push(
-    <Page key={`dt-${t.id}`} section="Decision tables" title={t.title} n={next()}><div className="pw-table"><DecisionTable table={{ ...t, title: '' }} /></div></Page>
+    <Page key={`dt-${t.id}`} section="Rules and decision tables" title={t.title} n={next()}><div className="pw-table"><DecisionTable table={{ ...t, title: '' }} /></div></Page>
   ));
+  pages.push(
+    <Page key="open" section="Open decisions" title="Open product and compliance decisions" caption="Not confirmed rules. Implemented configurably with synthetic values." n={next()}>
+      <div className="pw-open"><OpenItemsList /></div>
+      <h3 className="pw-sub">Other open points</h3>
+      <ul className="pw-list">{OTHER_OPEN_POINTS.map((a) => <li key={a}>{a}</li>)}</ul>
+    </Page>
+  );
   pages.push(
     <Page key="ux" section="UX handover" title="Global UX handover note" n={next()}>
       <blockquote className="pw-note">{UX_HANDOVER_NOTE}</blockquote>
       <p className="pw-text">These wireframes show structure, content and behaviour. Visual design, motion, Arabic / RTL and accessibility are for the UX/UI team to complete.</p>
-    </Page>
-  );
-  pages.push(
-    <Page key="assumptions" section="Assumptions and pending decisions" title="Assumptions and pending decisions" n={next()}>
-      <div className="pw-cols">
-        <div><h3>Assumptions in the prototype</h3><ul>{ASSUMPTIONS.map((a) => <li key={a}>{a}</li>)}</ul></div>
-        <div><h3>Pending product decisions</h3><ol>{PENDING_DECISIONS.map((a) => <li key={a}>{a}</li>)}</ol></div>
-      </div>
+      <h3 className="pw-sub">Assumptions in the prototype</h3>
+      <ul className="pw-list">{ASSUMPTIONS.map((a) => <li key={a}>{a}</li>)}</ul>
     </Page>
   );
   return <div className="pw">{pages}</div>;
+}
+
+/* ------------------------------------------------------------------ master board PDFs */
+
+export function PrintSimpleBoard() {
+  usePrintReady('Madfu_Proposed_Simple_Master_Board');
+  return (
+    <div className="pw">
+      <style>{'@page { size: 2200px 1150px; margin: 0; }'}</style>
+      <Page section="Madfu Proposed · Merchant onboarding" title={SIMPLE_BOARD.title} caption={SIMPLE_BOARD.caption} n={1} w={2200} h={1150} footer="Madfu Proposed · Simple Master Board · generated from the Lab model">
+        <BoardLegend />
+        <div className="pw-map pw-board"><BoardSvg map={SIMPLE_BOARD} /></div>
+        <p className="pw-board-note">{REUSE_NOTE}</p>
+        <div className="pw-board-open"><h3 className="pw-sub">Open decisions (not confirmed rules)</h3><OpenItemsList compact /></div>
+      </Page>
+    </div>
+  );
+}
+
+export function PrintDetailedBoard() {
+  usePrintReady('Madfu_Proposed_Detailed_Master_Board');
+  const W = 2000;
+  const H = 1250;
+  const foot = 'Madfu Proposed · Detailed Master Board · generated from the Lab model';
+  return (
+    <div className="pw">
+      <style>{`@page { size: ${W}px ${H}px; margin: 0; }`}</style>
+      <Page section="Madfu Proposed · Merchant onboarding" title="Detailed Master Board" caption="Every page, field group, backend decision, provider check, reused verification, manual route, outcome and open decision. One panel per page." n={1} w={W} h={H} footer={foot}>
+        <BoardLegend />
+        <ol className="pw-panels">{DETAILED_BOARD.map((m) => <li key={m.id}><strong>{m.title}</strong> — {m.caption}</li>)}</ol>
+        <p className="pw-board-note">{REUSE_NOTE}</p>
+      </Page>
+      {DETAILED_BOARD.map((m, i) => (
+        <Page key={m.id} section="Detailed Master Board" title={m.title} caption={m.caption} n={i + 2} w={W} h={H} footer={foot}>
+          <BoardLegend />
+          <div className="pw-map pw-board"><BoardSvg map={m} /></div>
+          {m.notes?.map((t) => <p key={t} className="pw-board-note">{t}</p>)}
+        </Page>
+      ))}
+      <Page section="Detailed Master Board" title="Open product and compliance decisions" caption="Product tasks and decisions. Not confirmed rules." n={DETAILED_BOARD.length + 2} w={W} h={H} footer={foot}>
+        <div className="pw-open"><OpenItemsList /></div>
+      </Page>
+    </div>
+  );
 }

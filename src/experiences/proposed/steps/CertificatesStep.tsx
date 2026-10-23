@@ -1,32 +1,38 @@
-import { useState } from 'react';
+import { activityByCode } from '../model/activity';
 import { LIMITS } from '../model/config';
-import { confirmCertificate, isFlCertificateNumber, loadCertificates, selectCertificate, submitManualCertificate } from '../model/state';
+import { subLabel } from '../model/eligibility';
+import { acknowledgeActivity, activityPending, confirmCertificate, continueFromCertificates, loadCertificates, selectCertificate, startEdit } from '../model/state';
 import type { Certificate } from '../model/types';
 import { useProposed, useStepFocus } from '../store';
-import { Alert, Button, Field, Spinner, StepHeader, TextInput, VerifyBadge } from '../ui/components';
+import { Alert, Button, Spinner, StepHeader, VerifyBadge } from '../ui/components';
 import { IconCheck, IconDoc, IconRefresh } from '../ui/icons';
+import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 import { useAutoRun } from './useAutoRun';
 
 const unavailableReason = (c: Certificate) =>
   c.status === 'expired' ? 'Expired' : c.issue === 'duplicate' ? 'Already linked to another Madfu account' : null;
 
-/** Certificates are retrieved after a successful Nafath, never typed or invented. Single selection. */
+/**
+ * Certificates are retrieved after a successful Nafath — never uploaded, typed or invented. Zero
+ * documents. The certificate activity is reconciled with the declared category.
+ */
 export function CertificatesStep() {
   const { state, apply } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
-  const { certs } = state.app;
+  const { certs, activity, kyb } = state.app;
   const [running, retry] = useAutoRun(certs.status === 'idle', loadCertificates, 1100);
   const canRetry = certs.tries <= LIMITS.providerRetries;
-  const toManual = () => apply((s) => ({ ...s, app: { ...s.app, step: 'manual-certificate', certs: { ...s.app.certs, status: s.app.certs.status === 'loaded' ? s.app.certs.status : 'none' } } }));
+  const pending = activityPending(state.app);
+  const reconciled = !!activity && activity.source === 'CERTIFICATE' && !pending;
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow="Step 3 of 6" title="Choose your freelance certificate"
-        description="These certificates are linked to your verified National ID. Choose the one this application is for." titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('certificates')} title="Choose your Freelancer Certificate"
+        description="These certificates are linked to your verified National ID. Nothing to upload: choose the one this application is for." titleRef={titleRef} />
 
       <div aria-live="polite" className="mb-stack">
-        {(running || certs.status === 'idle') && <div className="mb-progress-line"><Spinner size={16} /> Retrieving your freelance certificates…</div>}
+        {(running || certs.status === 'idle') && <div className="mb-progress-line"><Spinner size={16} /> Retrieving your Freelancer Certificates…</div>}
 
         {!running && certs.status === 'loaded' && (
           <fieldset className="mb-field mb-choice-group">
@@ -41,7 +47,7 @@ export function CertificatesStep() {
                     <span className="mb-cert-icon" aria-hidden="true"><IconDoc /></span>
                     <span className="mb-person-text">
                       <span className="mb-person-name mb-mono">{c.number}</span>
-                      <span className="mb-person-id">{c.category} · {c.subcategory}</span>
+                      <span className="mb-person-id">{activityByCode(c.activity)?.label ?? c.activityLabel}</span>
                     </span>
                     {reason ? <VerifyBadge state="neutral">{reason}</VerifyBadge> : c.issue === 'inconsistent' ? <VerifyBadge state="attention">Details to confirm</VerifyBadge> : <VerifyBadge state="verified">Active</VerifyBadge>}
                     <span className="mb-choice-radio" aria-hidden="true">{checked && <IconCheck size={14} />}</span>
@@ -52,56 +58,31 @@ export function CertificatesStep() {
           </fieldset>
         )}
 
-        {!running && certs.status === 'none' && (
-          <Alert tone="info" title="No active freelance certificate was found"
-            action={<Button variant="secondary" size="sm" onClick={toManual}>Enter certificate number</Button>}>
-            Enter your certificate number and our team will verify it.
+        {!running && pending && activity && (
+          <Alert tone="warning" title="This certificate’s activity doesn’t match the category you chose"
+            action={<div className="mb-btn-row">
+              <Button variant="secondary" size="sm" onClick={() => apply((s) => startEdit(s, 'kyb', 'certificates'))}>Change my category</Button>
+              <Button variant="ghost" size="sm" onClick={() => apply(acknowledgeActivity)}>Continue; Madfu will confirm</Button>
+            </div>}>
+            You chose “{subLabel(kyb.sub)}”. The certificate is for “{activityByCode(activity.activity)?.label ?? activity.activity}”.
           </Alert>
+        )}
+        {!running && activity?.acknowledged && activity.source === 'CERTIFICATE' && (
+          <Alert tone="info" title="We will confirm your activity">You can continue. Our team will confirm it before your contract is offered.</Alert>
         )}
 
         {!running && certs.status === 'unavailable' && (
-          <Alert tone="warning" title="We couldn't retrieve your certificates"
-            action={<div className="mb-btn-row">
-              {canRetry && <Button variant="secondary" size="sm" iconLeft={<IconRefresh size={16} />} onClick={retry}>Try again</Button>}
-              <Button variant="ghost" size="sm" onClick={toManual}>Enter the number instead</Button>
-            </div>}>
-            Your progress is saved.
+          <Alert tone="warning" title="We couldn’t retrieve your certificates"
+            action={canRetry ? <Button variant="secondary" size="sm" iconLeft={<IconRefresh size={16} />} onClick={retry}>Try again</Button> : undefined}>
+            {canRetry ? 'Your progress is saved. Try again in a moment.' : 'Your application is saved. Use Save & exit and continue later from the link we send you.'}
           </Alert>
         )}
       </div>
 
-      <StepNav onNext={() => apply(confirmCertificate)} nextDisabled={running || certs.status !== 'loaded' || !certs.selectedId} />
-    </section>
-  );
-}
-
-export function ManualCertificateStep() {
-  const { state, apply } = useProposed();
-  const titleRef = useStepFocus<HTMLHeadingElement>();
-  const [value, setValue] = useState(state.app.certs.manualNumber);
-  const [error, setError] = useState<string | null>(null);
-  const nafathFailed = state.app.nafath.status === 'exhausted';
-
-  const next = () => {
-    if (!isFlCertificateNumber(value)) { setError(value ? 'Enter the 9 digits after FL-.' : 'Enter your freelance certificate number.'); return; }
-    apply((s) => submitManualCertificate({ ...s, app: { ...s.app, certs: { ...s.app.certs, manualNumber: value } } }));
-  };
-
-  return (
-    <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow="Step 3 of 6" title="Freelance certificate number"
-        description={nafathFailed
-          ? 'Your identity will be verified manually, so enter the certificate this application is for.'
-          : 'Enter the certificate this application is for. Our team will verify it.'} titleRef={titleRef} />
-      <form className="mb-form" noValidate onSubmit={(e) => { e.preventDefault(); next(); }}>
-        <Field label="Freelance Certificate Number" error={error} hint="The 9 digits on your certificate.">
-          {({ id, describedBy, invalid }) => (
-            <TextInput id={id} prefix="FL-" inputMode="numeric" maxLength={9} value={value} placeholder="9 digits" aria-describedby={describedBy} invalid={invalid}
-              onChange={(e) => { setError(null); setValue(e.target.value.replace(/\D/g, '')); }} />
-          )}
-        </Field>
-        <StepNav onNext={next} />
-      </form>
+      <StepNav
+        onNext={() => apply(reconciled && state.app.certs.selectedId ? continueFromCertificates : confirmCertificate)}
+        nextDisabled={running || certs.status !== 'loaded' || !certs.selectedId || pending}
+      />
     </section>
   );
 }

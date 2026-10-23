@@ -13,13 +13,14 @@ interface Props {
 }
 
 /**
- * Back / Next for every step. Opened from Review via Edit, it becomes Cancel (discard) +
- * "Save and return to review". Back never re-enters a verified SMS code.
+ * Back / Next for every step. Opened through Edit, it becomes Cancel (restores the previous values)
+ * + "Save and return". Back never re-enters a verified SMS code and never resets completed checks.
  */
 export function StepNav({ onNext, nextLabel = 'Next', nextDisabled, loading, loadingLabel, hideBack }: Props) {
   const { state, apply } = useProposed();
-  const editing = state.app.editing === 'review';
+  const editing = !!state.app.returnTo && !!state.app.editBaseline;
   const canBack = !hideBack && !editing && previousStep(state.app) !== null;
+  const returnLabel = state.app.returnTo === 'review' ? 'Save and return to review' : 'Save and continue';
   return (
     <Actions split>
       {editing ? (
@@ -37,7 +38,7 @@ export function StepNav({ onNext, nextLabel = 'Next', nextDisabled, loading, loa
           iconRight={editing ? undefined : <IconArrowRight size={18} />}
           onClick={(e) => { e.preventDefault(); onNext(); }}
         >
-          {editing ? 'Save and return to review' : nextLabel}
+          {editing ? returnLabel : nextLabel}
         </Button>
       )}
     </Actions>

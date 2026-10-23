@@ -11,6 +11,8 @@ const MadfuCurrentPage = lazy(() => import('./experiences/madfu-current/MadfuCur
 const ProposedPage = lazy(() => import('./experiences/proposed/ProposedPage'));
 const ComparePage = lazy(() => import('./pages/Compare'));
 const PrintWireframes = lazy(() => import('./pages/PrintWireframes'));
+const PrintSimpleBoard = lazy(() => import('./pages/PrintWireframes').then((m) => ({ default: m.PrintSimpleBoard })));
+const PrintDetailedBoard = lazy(() => import('./pages/PrintWireframes').then((m) => ({ default: m.PrintDetailedBoard })));
 
 const TITLES: Record<string, string> = {
   '/': 'Merchant Onboarding Lab',
@@ -31,12 +33,16 @@ function TitleSync() {
 
 export function App() {
   const { pathname } = useLocation();
-  // Print-only route for the wireframes PDF: no Lab chrome.
+  // Print-only routes for the PDFs (wireframes, master boards): no Lab chrome.
   if (pathname.startsWith('/print/')) {
     return (
       <LabProvider>
         <Suspense fallback={null}>
-          <Routes><Route path="/print/wireframes" element={<PrintWireframes />} /></Routes>
+          <Routes>
+            <Route path="/print/wireframes" element={<PrintWireframes />} />
+            <Route path="/print/board-simple" element={<PrintSimpleBoard />} />
+            <Route path="/print/board-detailed" element={<PrintDetailedBoard />} />
+          </Routes>
         </Suspense>
       </LabProvider>
     );

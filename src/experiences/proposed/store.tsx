@@ -24,11 +24,11 @@ interface Store {
 
 const Ctx = createContext<Store | null>(null);
 /** Versioned so a stored application from an older model never loads into the new one. */
-export const STORE_KEY = 'proposed:v2';
+export const STORE_KEY = 'proposed:v3';
 
 function load(): ProposedState {
   const saved = readLocal<ProposedState | null>(STORE_KEY, null);
-  return saved && saved.app && saved.sim && saved.saved ? saved : initialState();
+  return saved && saved.app && saved.sim && saved.backend && saved.app.kyb ? saved : initialState();
 }
 
 export function ProposedProvider({ children, initial, isStatic = false, previewErrors = {} }: { children: ReactNode; initial?: ProposedState; isStatic?: boolean; previewErrors?: Record<string, string> }) {

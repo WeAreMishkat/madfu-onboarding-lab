@@ -1,145 +1,144 @@
 /**
- * Decision tables for the PDF and the in-app reference. Rows are COMPUTED from the same functions
- * the prototype runs (routing, contract gate), so the document cannot drift from the app.
+ * Decision tables, open decisions and the product backlog for Madfu Proposed. Rows are COMPUTED from
+ * the same configuration and functions the prototype runs, so documents cannot drift from the app.
  */
-import { CATEGORIES, LIMITS, REVENUE_OPTIONS, REVENUE_RULE, isSelfService } from './config';
-import { OUTCOME_COPY, STATUS_LABEL } from './copy';
+import { ACTIVITY_MAPPING, ACTIVITY_MAPPING_VERSION, MAPPING_ACTION, activityByCode } from './activity';
+import { LIMITS, REVENUE_RULE, RULE_FLAGS, STAGES, kindLabel } from './config';
+import { OUTCOME_COPY, REASON_LABEL, STATUS_LABEL } from './copy';
+import { CATEGORIES, CATEGORY_RULE_LABEL, ELIGIBILITY_RULES, ELIGIBILITY_RULESET, subLabel } from './eligibility';
+import { GOV_RULES, GOV_RULESET } from './government';
+import { BASE_PLANS, OPTIONAL_PLANS, PRICING_MATRIX, PRICING_VERSION, pct } from './pricing';
 import { contractEligible, prefill } from './state';
-import type { ApplicantType, OutcomeKind } from './types';
+import type { Application, OutcomeKind } from './types';
+import { URL_RULES } from './urls';
+import { DEPENDS_ON, FRESHNESS_DAYS, INVALIDATION_RULES, VERIFICATION_LABEL } from './verifications';
 
 export interface Table { id: string; title: string; note?: string; head: string[]; rows: string[][] }
 
-const typeLabel = (t: ApplicantType) => (t === 'CR' ? 'Registered business' : 'Freelancer');
-
-function revenueRouting(): Table {
-  const rows: string[][] = [];
-  for (const t of ['CR', 'FL'] as const) {
-    for (const r of REVENUE_OPTIONS) rows.push([typeLabel(t), r.label, isSelfService(t, r.value) ? 'Self-onboarding' : 'Sales lead (no onboarding)']);
-  }
-  return {
-    id: 'revenue', title: 'Revenue routing (after a successful SMS code)', head: ['Applicant', 'Annual revenue', 'Route'], rows,
-    note: `Provisional boundary: exactly SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} is treated as self-onboarding (configurable).`
-  };
-}
-
-const identityOrder: Table = {
-  id: 'identity', title: 'Existing and duplicate checks (order)', head: ['Order', 'Check', 'If true'],
-  rows: [
-    ['1', 'CR (or National ID) belongs to an existing merchant account', 'Stop: "already has a Madfu account"; no new application'],
-    ['2', 'An application exists for this CR / National ID with the same mobile', 'Resume the saved application after the SMS code'],
-    ['3', 'An application exists for this CR / National ID with another mobile', 'Stop: duplicate identity; no new application'],
-    ['4', 'Existing Freelancer adds another certificate', 'Future account flow (not designed)'],
-    ['5', 'Mobile number already used with another CR or person', 'Not a reason to reject: same mobile may belong to several businesses']
-  ]
+const stagesTable: Table = {
+  id: 'stages', title: 'Stages', head: ['#', 'Stage', 'Screens'],
+  rows: STAGES.map((s) => [String(s.n), s.label, s.steps.join(' · ')])
 };
 
-function categoryTable(): Table {
-  const rows = CATEGORIES.flatMap((g) => g.subs.map((s) => {
-    const cr = s.classification === 'BLOCKED' ? 'Neutral confirmation; no paid checks' : s.classification === 'MANUAL_REVIEW' ? 'Continue; flag business review' : 'Continue';
-    const fl = s.classification === 'BLOCKED' ? 'Neutral confirmation; no paid checks' : s.classification === 'CR_ONLY' ? 'Continue; flag CR-only category' : s.classification === 'MANUAL_REVIEW' ? 'Continue; flag business review' : 'Continue';
-    return [`${g.label} › ${s.label}`, s.classification.replace('_', ' ').toLowerCase(), cr, fl];
-  }));
-  return { id: 'category', title: 'Category screening (fixture catalogue)', head: ['Madfu subcategory', 'Classification', 'Registered business', 'Freelancer'], rows, note: 'Fixture values: the real Madfu catalogue and restrictions are pending.' };
-}
-
-const providerTable: Table = {
-  id: 'cr', title: 'CR verification results', head: ['Result', 'Behaviour'],
-  rows: [
-    ['Valid', 'Continue to authorised people'],
-    ['Expired', 'Continue; flagged internally for review'],
-    ['Not found / invalid', 'Cannot continue; applicant can edit the CR number'],
-    ['Provider unavailable', `Retry (bounded, ${LIMITS.providerRetries} retries); progress kept; no people invented`],
-    ['Unexpected error', 'Retry; progress kept']
-  ]
+const eligibilityRules: Table = {
+  id: 'eligibility', title: `Stage 1 eligibility rules (ordered, ${ELIGIBILITY_RULESET})`, head: ['Rule', 'Condition', 'Result', 'Reason code', 'Type'],
+  rows: ELIGIBILITY_RULES.map((r) => [r.id, r.description, r.result, r.reason, r.kind]),
+  note: 'First matching rule wins. Evaluated internally before any external call. Production Eligibility Matrix: PRODUCT TASK.'
 };
 
-const nafathTable: Table = {
-  id: 'nafath', title: 'Nafath (identity and authority, not the contract)', head: ['Situation', 'Registered business', 'Freelancer'],
-  rows: [
-    ['Attempts', `${LIMITS.nafathAttempts} per application, shared across people`, `${LIMITS.nafathAttempts} per application`],
-    ['Changing the selected person', 'Does not reset the counter', '—'],
-    ['First failure (rejected / timeout)', 'Retry same person, or choose another; remaining attempts shown', 'Retry; remaining attempts shown'],
-    ['Second failure', 'No more automatic Nafath; unverified; business data still collected; no contract', 'Manual route: certificate number by hand, IBAN without ownership check, no contract'],
-    ['Technical failure', 'Does not use an attempt (provisional)', 'Does not use an attempt (provisional)'],
-    ['Verified', 'Continue to business details', 'Retrieve freelance certificates']
-  ]
+const catalogue: Table = {
+  id: 'catalogue', title: 'Category rules (synthetic fixture catalogue)', head: ['Madfu subcategory', 'Registered business', 'Freelancer'],
+  rows: CATEGORIES.flatMap((g) => g.subs.map((s) => [`${g.label} › ${s.label}`, CATEGORY_RULE_LABEL[s.rules.CR], CATEGORY_RULE_LABEL[s.rules.FL]])),
+  note: 'Example only (e.g. gold & jewellery). Not the production policy catalogue.'
 };
 
-const certificateTable: Table = {
-  id: 'certificates', title: 'Freelance certificates', head: ['Result', 'Behaviour'],
+const urlTable: Table = {
+  id: 'urls', title: 'Website and Google Maps validation (configurable)', head: ['Field', 'Accepted', 'Rejected'],
   rows: [
-    ['One', 'Preselected; confirm'],
-    ['Several', 'Choose one'],
-    ['None', 'No certificate invented; type the number (manual verification)'],
-    ['Provider unavailable', 'Retry, then type the number'],
-    ['Expired', 'Shown, cannot be selected'],
-    ['Already attached to another account', 'Shown, cannot be selected'],
-    ['Inconsistent data', 'Selectable; flagged'],
-    ['Activity differs from chosen category', 'Flagged; restriction re-evaluated (restricted → neutral confirmation)']
-  ]
+    ['Website (Online / Both)', 'https:// link with a real domain', `Social media (${URL_RULES.socialHosts.slice(0, 5).join(', ')}…) · WhatsApp (${URL_RULES.whatsappHosts.slice(0, 2).join(', ')}…) · invalid format`],
+    ['Google Maps URL (Offline / Both)', `${URL_RULES.mapsHosts.join(', ')} · google.com/maps`, 'Any other host, social links, invalid format']
+  ],
+  note: 'A format check does not prove the applicant owns the website or location.'
 };
 
-const ibanTable: Table = {
-  id: 'iban', title: 'IBAN ownership', head: ['Applicant', 'Checked against', 'After 2 unsuccessful checks'],
+const govTable: Table = {
+  id: 'government', title: `Government CR validation (${GOV_RULESET})`, head: ['Check', 'Condition', 'Action'],
   rows: [
-    ['Registered business', 'The business (CR)', 'Continue; unverified; manual financial review'],
-    ['Freelancer, Nafath verified', 'The individual', 'Continue; unverified; manual financial review'],
-    ['Freelancer, Nafath failed', 'Not checked', 'Collected for manual verification']
-  ]
+    ...Object.entries(GOV_RULES.statusAction).map(([st, a]) => ['CR status', st, `${a.action}${a.reason !== 'OK' ? ` (${a.reason})` : ''}`]),
+    ['CR age', `${GOV_RULES.minCrAgeMonths} months or less`, 'temporarily_not_eligible (CR_TOO_RECENT)'],
+    ['National Address', 'Missing / expired', 'continue + flag'],
+    ['Legal entity', GOV_RULES.additionalDocumentsFor.join(', '), 'continue + "additional documents required" (collected later)']
+  ],
+  note: 'Only these rules are known. The full Decision & Validation Inventory is a PRODUCT TASK.'
+};
+
+const activityTable: Table = {
+  id: 'activity', title: `Category ↔ government activity mapping (${ACTIVITY_MAPPING_VERSION})`, head: ['Declared subcategory', 'Government activity', 'Outcome', 'Action'],
+  rows: ACTIVITY_MAPPING.map((m) => [subLabel(m.sub), activityByCode(m.activity)?.label ?? m.activity, m.outcome, MAPPING_ACTION[m.outcome]])
+    .concat([['Any pair not listed', '—', 'UNMAPPED', MAPPING_ACTION.UNMAPPED], ['Registered activity not eligible for the applicant', 'e.g. gold & jewellery', 'any', 'stop']]),
+  note: 'Synthetic fixture. Production mapping: PRODUCT TASK for the Product/Business team.'
+};
+
+const reuseTable: Table = {
+  id: 'reuse', title: 'Verification reuse (cost rule)', head: ['Verification', 'Depends on', 'Freshness policy', 'On ordinary resume'],
+  rows: (Object.keys(DEPENDS_ON) as Array<keyof typeof DEPENDS_ON>).map((t) => [VERIFICATION_LABEL[t], DEPENDS_ON[t], FRESHNESS_DAYS[t] === null ? 'Reusable until invalidated' : `${FRESHNESS_DAYS[t]} days`, 'Reused — no new provider call']),
+  note: 'Previously successful external checks are reused until their dependent data changes or an explicit freshness policy invalidates them. Resume normally costs one SMS OTP.'
+};
+
+const invalidationTable: Table = {
+  id: 'invalidation', title: 'Edit → what is invalidated', head: ['Change', 'External verifications invalidated', 'Internal re-evaluation'],
+  rows: INVALIDATION_RULES.map((r) => [r.change, r.invalidates.length ? r.invalidates.map((t) => VERIFICATION_LABEL[t]).join(', ') : 'None', r.extra ? `${r.internal}. ${r.extra}` : r.internal])
+};
+
+const pricingTable: Table = {
+  id: 'pricing', title: `Pricing & Commission Matrix (${PRICING_VERSION}, synthetic)`, head: ['Category / subcategory', `Standard (${BASE_PLANS.join(' + ')} months, included)`, ...OPTIONAL_PLANS.map((t) => `${t} months (optional)`)],
+  rows: PRICING_MATRIX.map((p) => [p.key, pct(p.standard), ...OPTIONAL_PLANS.map((t) => pct(p.optional[t as 6 | 9 | 12]))]),
+  note: 'Standard commission never drops because of self-declared revenue. Optional evidence triggers an internal Commercial review; onboarding continues with the standard rate.'
 };
 
 function contractTable(): Table {
-  const cases: Array<[string, ApplicantType, (a: ReturnType<typeof prefill>) => ReturnType<typeof prefill>]> = [
+  const cases: Array<[string, 'CR' | 'FL_CERT', (a: Application) => Application]> = [
     ['Nafath verified, IBAN verified', 'CR', (a) => a],
     ['Nafath verified, IBAN unverified after 2 checks', 'CR', (a) => ({ ...a, business: { ...a.business, ibanStatus: 'unverified' } })],
-    ['Nafath verified, CR expired (flag)', 'CR', (a) => ({ ...a, cr: { ...a.cr, status: 'expired' } })],
+    ['Activity conflict, team to confirm', 'CR', (a) => ({ ...a, flags: ['ACTIVITY_CONFLICT_REVIEW'] })],
     ['Nafath failed twice', 'CR', (a) => ({ ...a, nafath: { ...a.nafath, status: 'exhausted' } })],
-    ['No eligible individual', 'CR', (a) => ({ ...a, persons: { ...a.persons, status: 'none' }, nafath: { ...a.nafath, status: 'idle' } })],
-    ['Nafath verified, certificate selected', 'FL', (a) => a],
-    ['Nafath verified, certificate typed by hand', 'FL', (a) => ({ ...a, flags: ['CERTIFICATE_MANUAL'], certs: { ...a.certs, selectedId: null, manualNumber: '400000009' } })],
-    ['Nafath failed twice', 'FL', (a) => ({ ...a, nafath: { ...a.nafath, status: 'exhausted' } })]
+    ['Nafath verified, certificate selected, bank linked', 'FL_CERT', (a) => a],
+    ['Nafath verified, bank NOT linked to certificate', 'FL_CERT', (a) => ({ ...a, business: { ...a.business, bankLinked: 'no', ibanStatus: 'skipped' } })]
   ];
-  const rows = cases.map(([label, t, f]) => {
-    const ok = contractEligible(f(prefill(t, 'review')));
-    return [typeLabel(t), label, ok ? 'Contract available' : 'No contract: manual verification'];
-  });
-  return { id: 'contract', title: 'Contract eligibility (computed from the prototype rule)', head: ['Applicant', 'Situation', 'Contract'], rows };
+  return {
+    id: 'contract', title: 'Contract gate (computed from the prototype rule)', head: ['Applicant', 'Situation', 'Contract'],
+    rows: cases.map(([label, k, f]) => [kindLabel(k), label, contractEligible(f(prefill(k, 'review'))) ? 'Contract available' : 'No contract: manual verification']),
+    note: `Freelancer bank-link gate is a rule flag (currently ${RULE_FLAGS.flLinkedIbanRequiredBeforeContract ? 'ON' : 'OFF'}), pending a Compliance decision.`
+  };
 }
 
 function outcomesTable(): Table {
   const map: Array<[OutcomeKind, keyof typeof STATUS_LABEL]> = [
-    ['SUBMITTED', 'SUBMITTED'], ['MANUAL_VERIFICATION', 'SUBMITTED_MANUAL_VERIFICATION'], ['SALES_LEAD', 'SALES_LEAD_LOW_REVENUE'],
-    ['CATEGORY_REVIEW', 'CATEGORY_BLOCKED'], ['EXISTING_MERCHANT', 'EXISTING_MERCHANT'], ['DUPLICATE_IDENTITY', 'DUPLICATE_IDENTITY'],
-    ['ADDITIONAL_CERTIFICATE', 'ADDITIONAL_CERTIFICATE_PENDING'], ['CONTRACT_DECLINED', 'CONTRACT_DECLINED']
+    ['SUBMITTED', 'SUBMITTED'], ['SUBMITTED_BANKING_PENDING', 'SUBMITTED_BANKING_PENDING'], ['MANUAL_VERIFICATION', 'SUBMITTED_MANUAL_VERIFICATION'],
+    ['SALES_LEAD', 'LEAD_HIGH_REVENUE'], ['SALES_LEAD', 'LEAD_LOW_REVENUE'], ['FL_CERT_REQUIRED', 'LEAD_FL_CERT_REQUIRED'], ['FL_CERT_REQUIRED', 'LEAD_FL_CERT_NOT_FOUND'],
+    ['NOT_ELIGIBLE', 'NOT_ELIGIBLE'], ['TEMPORARILY_NOT_ELIGIBLE', 'TEMPORARILY_NOT_ELIGIBLE'], ['EXISTING_MERCHANT', 'EXISTING_MERCHANT'],
+    ['DUPLICATE_IDENTITY', 'DUPLICATE_IDENTITY'], ['CONTRACT_DECLINED', 'CONTRACT_DECLINED']
   ];
-  return {
-    id: 'outcomes', title: 'Outcomes: external copy vs internal status', head: ['Applicant sees', 'Internal status'],
-    rows: map.map(([o, s]) => [OUTCOME_COPY[o].title, STATUS_LABEL[s]])
-  };
+  return { id: 'outcomes', title: 'Outcomes: applicant sees vs internal status', head: ['Applicant sees', 'Internal status'], rows: map.map(([o, s]) => [OUTCOME_COPY[o].title, STATUS_LABEL[s]]) };
 }
 
-export const DECISION_TABLES: Table[] = [revenueRouting(), identityOrder, categoryTable(), providerTable, nafathTable, certificateTable, ibanTable, contractTable(), outcomesTable()];
+const reasonsTable: Table = {
+  id: 'reasons', title: 'Internal reason codes (never shown as such)', head: ['Code', 'Meaning'],
+  rows: Object.entries(REASON_LABEL).map(([k, v]) => [k, v])
+};
 
-export const PENDING_DECISIONS: string[] = [
-  `Exact revenue boundary: is SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} self-onboarding or a lead? (prototype: self-onboarding)`,
-  'Real Madfu category catalogue, its restrictions and CR-only list (prototype uses fixtures).',
-  'Provider behind CR enrichment / verification and associated parties (prototype: neutral mock adapter).',
-  'Provider behind IBAN ownership verification for businesses and individuals.',
-  'Contract / e-signature provider and legal acceptance method (prototype: generic simulated acceptance).',
-  'Whether a Nafath technical failure consumes one of the two attempts (prototype: it does not).',
-  'Whether editing the IBAN resets the two-check limit (prototype: the limit is per application).',
-  'VAT for registered businesses when no VAT record is found (prototype: VAT is retrieved; Freelancers type the number).',
-  'Freelancer with no certificate found: allow contract after manual certificate verification? (prototype: no contract, manual verification).',
-  'Existing Freelancer adding another certificate: future account flow to be designed.'
+export const DECISION_TABLES: Table[] = [stagesTable, eligibilityRules, catalogue, urlTable, govTable, activityTable, reuseTable, invalidationTable, pricingTable, contractTable(), outcomesTable(), reasonsTable];
+
+/* ------------------------------------------------------------------ open decisions (do not present as rules) */
+
+export interface OpenItem { id: string; type: 'PRODUCT TASK' | 'COMPLIANCE DECISION' | 'PRODUCT/COMMERCIAL DECISION' | 'PRODUCT/ENGINEERING DECISION' | 'PRODUCT DECISION'; title: string; detail: string }
+
+export const OPEN_ITEMS: OpenItem[] = [
+  { id: 'OD-1', type: 'PRODUCT TASK', title: 'Define the full Eligibility Matrix', detail: 'Category · subcategory · applicant type · sales channel · revenue band · result · CR / certificate required · manual review · regulatory restriction · reason code · rule version.' },
+  { id: 'OD-2', type: 'PRODUCT TASK', title: 'Define the Pricing & Commission Matrix', detail: 'Category · subcategory · merchant / revenue tier · tenure · standard commission · improved / negotiated logic · proof requirement · effective date / version.' },
+  { id: 'OD-3', type: 'PRODUCT TASK', title: 'Define Category/Subcategory ↔ CR Activity mapping', detail: 'MATCH / COMPATIBLE / AMBIGUOUS / CONFLICT / UNMAPPED per pair, and the action for each (continue, manual review, stop, clarification).' },
+  { id: 'OD-4', type: 'PRODUCT TASK', title: 'Complete the Onboarding Decision & Validation Inventory', detail: 'Every rule from merchant input, government CR data, National Address, freelancer data, regulation, Madfu policy, categories, CR activities / age / status, legal entity, nationality, violations, banking, sales channel. Per rule: source, field, condition, type, regulatory / business / internal, stage, blocking, user message, internal status, manual follow-up, external-call cost, version.' },
+  { id: 'OD-5', type: 'COMPLIANCE DECISION', title: 'Freelancer linked IBAN before contract?', detail: `Can a Freelancer sign the Madfu contract before the required IBAN is linked to the Freelancer Certificate? Prototype rule flag: ${RULE_FLAGS.flLinkedIbanRequiredBeforeContract} (least disruptive: contract allowed, banking follow-up).` },
+  { id: 'OD-6', type: 'PRODUCT/COMMERCIAL DECISION', title: 'Optional better-pricing documents', detail: 'Which documents qualify a merchant for improved pricing. Prototype: "Revenue supporting document A / B" placeholders. Contract amendment / repricing after review also open.' },
+  { id: 'OD-7', type: 'PRODUCT/ENGINEERING DECISION', title: 'Freshness / expiry policy for stored verifications', detail: 'CR data, people, Nafath, certificates, IBAN. Prototype: "Reusable until invalidated" (no expiry) for all.' }
+];
+
+/** Earlier open points that remain valid. Not counted in the seven required items. */
+export const OTHER_OPEN_POINTS: string[] = [
+  `Exact treatment of SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} and SAR ${REVENUE_RULE.selfServiceToSar.toLocaleString('en-US')} (policy boundary to confirm; prototype: inside the self-service band).`,
+  `Government status → action mapping (prototype: expired and violation → manual verification, suspended → not eligible).`,
+  'Providers behind CR data, associated people, certificates, IBAN ownership and the contract (prototype: neutral simulated adapters).',
+  `Whether a Nafath technical failure uses one of the ${LIMITS.nafathAttempts} attempts (rule flag: ${RULE_FLAGS.nafathTechnicalFailureCounts}).`,
+  'Which additional documents non-Saudi entities need, and when operations collect them.'
 ];
 
 export const ASSUMPTIONS: string[] = [
-  'Application and merchant account are separate: no login or password exists during onboarding; the account is set up after approval.',
-  'SMS code: 3 incorrect attempts, then a new code is needed; expiry and resend are simulated.',
-  'Identity and duplicate checks run before mobile matching; the outcome is shown only after the SMS code.',
+  'Know Your Business is the first page: no CR, National ID, mobile or OTP before eligibility.',
+  'Application and merchant account are separate: no login or password during onboarding.',
+  'A Continue link identifies an application; OTP is always required to reopen it.',
+  'Stage-1 answers are never asked again; they are shown with Edit.',
   'Nafath verifies identity and authority; it is not the contract signature.',
-  'Expired CR is allowed to progress and is flagged for review.',
-  'IBAN is the only bank input; bank name is derived; SWIFT, beneficiary and IBAN certificate are never asked.',
-  'Branch count is optional and only asked for offline or mixed sellers.',
-  'No Source of Revenue / Source of Income, no Proof of Sales, no VAT certificate, no document uploads.'
+  'IBAN is the only bank input; bank name is derived. No standard-path document uploads; Freelancers upload nothing.',
+  'Payment plans and commission live in the Commercial Offer; the Contract shows them as contract content only.',
+  'Source of Revenue / Source of Income are not asked.'
 ];

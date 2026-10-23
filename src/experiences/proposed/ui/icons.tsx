@@ -76,6 +76,15 @@ export const IconRefresh = ({ size, ...p }: P) => (
 export const IconExit = ({ size, ...p }: P) => (
   <svg {...base(size)} {...p}><path d="M8 3.5H4.5a1 1 0 00-1 1v11a1 1 0 001 1H8M12.5 6.5L16 10l-3.5 3.5M16 10H7.5" /></svg>
 );
+export const IconPin = ({ size, ...p }: P) => (
+  <svg {...base(size)} {...p}><path d="M10 17.5s5.5-5 5.5-9.3a5.5 5.5 0 00-11 0c0 4.3 5.5 9.3 5.5 9.3z" /><circle cx="10" cy="8.2" r="2" /></svg>
+);
+export const IconUpload = ({ size, ...p }: P) => (
+  <svg {...base(size)} {...p}><path d="M10 13V3.5M6 7.5l4-4 4 4M3.5 13.5v2a1 1 0 001 1h11a1 1 0 001-1v-2" /></svg>
+);
+export const IconPercent = ({ size, ...p }: P) => (
+  <svg {...base(size)} {...p}><path d="M15 5L5 15" /><circle cx="6" cy="6" r="2" /><circle cx="14" cy="14" r="2" /></svg>
+);
 export const IconSpark = ({ size, ...p }: P) => (
   <svg {...base(size)} {...p}><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3M4.7 4.7l2.1 2.1M13.2 13.2l2.1 2.1M4.7 15.3l2.1-2.1M13.2 6.8l2.1-2.1" /></svg>
 );

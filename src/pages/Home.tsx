@@ -49,8 +49,8 @@ const CARDS: CardDef[] = [
     kindClass: 'is-future',
     title: 'Madfu Proposed',
     mark: <MadfuBusinessLockup height={26} />,
-    description: 'Product-design wireframe prototype: one entry page, SMS code, early category screening, Nafath, retrieved certificates and a verified IBAN, then a separate agreement.',
-    facts: ['Application, not account', 'Freelancers self-onboard at all revenues', `${SCENARIO_COUNT} scenarios + journey maps`]
+    description: 'Product-design prototype, KYB first: eligibility before identity, then OTP, government checks reused on resume, a Commercial Offer with payment plans, and a contract-only step.',
+    facts: ['Know Your Business first', 'Resume costs one OTP', `${SCENARIO_COUNT} scenarios + master boards`]
   }
 ];
 

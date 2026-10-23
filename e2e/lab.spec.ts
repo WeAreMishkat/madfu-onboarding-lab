@@ -6,9 +6,10 @@ const ROUTES: Array<[string, RegExp | string]> = [
   ['./tabby', /Tabby|region|Choose/i],
   ['./tamara', /Tamara|business/i],
   ['./madfu/current', /Get Started/i],
-  ['./madfu/proposed', 'Start your Madfu application'],
+  ['./madfu/proposed', 'Tell us about your business'],
   ['./compare', 'Compare experiences'],
-  ['./madfu/proposed?view=maps', 'Journey maps']
+  ['./madfu/proposed?view=boards', 'Master boards'],
+  ['./madfu/proposed?view=rules', 'Rules & decisions']
 ];
 
 function trackErrors(page: Page) {
@@ -50,57 +51,72 @@ test('navigation from home to every experience and back', async ({ page }) => {
   }
 });
 
-test('Madfu Proposed: Freelancer journey end to end in a real browser', async ({ page }) => {
+test('Madfu Proposed: KYB-first Freelancer journey end to end in a real browser', async ({ page }) => {
   await page.goto('./madfu/proposed');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByRole('radio', { name: /Freelancer/ }).check();
-  await page.getByLabel('National ID Number').fill(['1', '000000', '201'].join(''));
-  await page.getByRole('radio', { name: /Above SAR 20,000,000/ }).check();
-  await page.getByLabel('Mobile number').fill(['5', '0000', '0012'].join(''));
-  await page.getByRole('button', { name: 'Next' }).click();
-  await page.getByLabel('Verification code').fill('246810');
+  // Stage 1: no identity, mobile or code on the first page.
+  await expect(page.getByLabel('Mobile number')).toHaveCount(0);
+  await page.getByLabel('Who is applying?').selectOption('FL_CERT');
   await page.getByLabel('Business category').selectOption('services');
   await page.getByLabel('Business subcategory').selectOption('services-design');
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('radio', { name: /Above SAR 20,000,000/ }).check();
+  await page.getByRole('radio', { name: /^Online/ }).check();
+  await page.getByLabel('Business website URL').fill('https://instagram.com/studio');
+  await page.getByRole('button', { name: 'Check eligibility' }).click();
+  await expect(page.getByText('Enter your own website, not a social-media page.')).toBeVisible();
+  await page.getByLabel('Business website URL').fill('https://studio.example.com');
+  await page.getByRole('button', { name: 'Check eligibility' }).click();
+  // Stage 2
+  await page.getByLabel('National ID Number').fill(['1', '000000', '201'].join(''));
+  await page.getByLabel('Mobile number').fill(['5', '0000', '0012'].join(''));
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Verification code').fill('246810');
+  // Stage 3
   await page.getByRole('button', { name: 'Send Nafath request' }).click();
   await expect(page.getByText('Identity verified')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByText('FL-400000001')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
-  await page.getByLabel('IBAN').fill(['SA', '00', '80', '000000', '12345678', '4821'].join(''));
-  await page.getByRole('button', { name: 'Verify' }).click();
-  await expect(page.getByText('Account verified')).toBeVisible();
-  await page.getByRole('radio', { name: 'No' }).check();
-  await page.getByRole('radio', { name: /^Online/ }).check();
-  await page.getByLabel('Website URL').fill('https://studio.example.com');
+  // Stage 4: bank not linked -> continue without IBAN
+  await page.getByRole('radio', { name: 'No / not yet' }).check();
+  await page.getByRole('radio', { name: 'No', exact: true }).check();
   await page.getByRole('button', { name: 'Next' }).click();
+  // Stage 5
+  await expect(page.getByRole('heading', { name: 'Your commercial offer' })).toBeVisible();
+  await page.getByRole('checkbox', { name: /^12 months/ }).check({ force: true });
+  await page.getByRole('button', { name: 'Confirm offer and continue' }).click();
   await expect(page.getByText('Everything is ready')).toBeVisible();
 
   // Refresh keeps progress.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Review your application' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Continue to agreement' }).click();
-  const doc = page.getByLabel('Agreement text');
+  await page.getByRole('button', { name: 'Continue to contract' }).click();
+  await expect(page.getByRole('table', { name: 'Schedule 1' })).toContainText('12 months');
+  const doc = page.getByLabel('Contract text');
   await doc.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
-  await page.getByRole('checkbox', { name: /I have read the agreement/ }).check();
-  await page.getByRole('button', { name: 'Accept agreement' }).click();
+  await page.getByRole('checkbox', { name: /I have read the contract/ }).check();
+  await page.getByRole('button', { name: 'Accept contract' }).click();
   await page.getByRole('button', { name: 'Submit application' }).click();
-  await expect(page.getByRole('heading', { name: 'Your application has been submitted successfully.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your application has been submitted.' })).toBeVisible();
 });
 
-test('Prototype Controls switch scenarios', async ({ page }) => {
+test('Prototype Controls switch scenarios; resume reuses verified checks', async ({ page }) => {
   await page.goto('./madfu/proposed');
   const toggle = page.getByRole('button', { name: 'Prototype Controls', exact: true });
   await expect(toggle).toBeVisible();
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
   const controls = page.getByRole('complementary', { name: 'Prototype Controls' });
   await expect(controls).toBeVisible();
-  await controls.getByRole('button', { name: /CR expired registration/ }).click();
-  await expect(page.getByText('Registration expired').first()).toBeVisible({ timeout: 10_000 });
-  await controls.getByRole('button', { name: /Freelancer no certificates/ }).click();
-  await expect(page.getByText('No active freelance certificate was found')).toBeVisible({ timeout: 10_000 });
+  await controls.getByRole('button', { name: /CR 3 months old or less/ }).click();
+  await expect(page.getByRole('heading', { name: 'We can’t onboard this business yet.' })).toBeVisible({ timeout: 10_000 });
+  await controls.getByRole('button', { name: /Resume with the same verified IBAN/ }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  await page.getByLabel('Verification code').fill('246810');
+  await expect(page.getByRole('heading', { name: 'Review your application' })).toBeVisible();
+  await controls.getByRole('tab', { name: 'Internal state' }).click();
+  await expect(controls.getByText('Verified previously — reused, no new provider call')).toHaveCount(4);
 });
 
 test('Compare: Current vs Proposed and all four', async ({ page }) => {
@@ -119,9 +135,11 @@ test('Evidence drawer shows references, never screenshots', async ({ page }) => 
   await expect(drawer.getByText(/MDF-/).first()).toBeVisible();
 });
 
-test('wireframes PDF downloads', async ({ request, baseURL }) => {
-  const res = await request.get(`${baseURL}Madfu_Merchant_Onboarding_Wireframes.pdf`);
-  expect(res.status()).toBe(200);
-  expect(res.headers()['content-type']).toContain('pdf');
-  expect((await res.body()).length).toBeGreaterThan(100_000);
-});
+for (const pdf of ['Madfu_Merchant_Onboarding_Wireframes.pdf', 'Madfu_Proposed_Simple_Master_Board.pdf', 'Madfu_Proposed_Detailed_Master_Board.pdf']) {
+  test(`PDF downloads: ${pdf}`, async ({ request, baseURL }) => {
+    const res = await request.get(`${baseURL}${pdf}`);
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('pdf');
+    expect((await res.body()).length).toBeGreaterThan(50_000);
+  });
+}

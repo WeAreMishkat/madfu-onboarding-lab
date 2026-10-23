@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { demoMs } from '@/lib/timing';
-import { LIMITS, maskIdentifier } from '../model/config';
+import { LIMITS, isFreelancer, maskIdentifier } from '../model/config';
 import { eligiblePersons } from '../model/mock';
 import { continueAfterNafath, nafathRemaining, nafathResult, nextNafathAnswer, startNafath } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
 import { Actions, Alert, Button, Spinner, StepHeader, VerifyBadge } from '../ui/components';
 import { IconShield } from '../ui/icons';
 import { PersonRow } from './PersonsStep';
+import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 
 const WINDOW = 120;
@@ -19,15 +20,16 @@ const FAIL_COPY = {
 } as const;
 
 /**
- * Nafath verifies identity and authority. It is NOT the contract. Two attempts per application;
- * for a registered business the counter is shared across the people on the registration.
+ * Nafath verifies identity and authority. It is NOT the contract. Two attempts per application; for a
+ * registered business the counter is shared across the people on the registration. A successful
+ * verification is stored and never requested again on resume.
  */
 export function NafathStep() {
   const { state, apply, isStatic } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const { app } = state;
   const { nafath } = app;
-  const fl = app.entry.type === 'FL';
+  const fl = isFreelancer(app.kyb.kind);
   const person = eligiblePersons(app.persons.list).find((p) => p.id === app.persons.selectedId);
   const remaining = nafathRemaining(app);
   const [seconds, setSeconds] = useState(WINDOW);
@@ -42,12 +44,12 @@ export function NafathStep() {
   }, [nafath.status, nafath.requests, isStatic, apply]);
 
   const identity = fl
-    ? <span className="mb-person"><span className="mb-avatar" aria-hidden="true">ID</span><span className="mb-person-text"><span className="mb-person-name">National ID {maskIdentifier('FL', app.entry.identifier)}</span><span className="mb-person-id">From your application</span></span></span>
+    ? <span className="mb-person"><span className="mb-avatar" aria-hidden="true">ID</span><span className="mb-person-text"><span className="mb-person-name">National ID {maskIdentifier(app.identity.identifier)}</span><span className="mb-person-id">From your application</span></span></span>
     : person ? <PersonRow person={person} /> : null;
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow="Step 3 of 6" title="Verify with Nafath"
+      <StepHeader eyebrow={stageEyebrow('nafath')} title="Verify with Nafath"
         description={fl ? 'Confirm your identity in the Nafath app.' : 'The selected person confirms their identity and authority in the Nafath app.'} titleRef={titleRef} />
 
       <div className="mb-nafath-identity">
@@ -87,7 +89,7 @@ export function NafathStep() {
       )}
 
       {nafath.status === 'verified' && (
-        <Alert tone="success" title="Identity verified">{fl ? 'Next, choose your freelance certificate.' : 'Next, your business details.'}</Alert>
+        <Alert tone="success" title="Identity verified">{fl ? 'Next, choose your Freelancer Certificate.' : 'Next, your business and banking details.'}</Alert>
       )}
 
       {nafath.status === 'failed' && nafath.lastResult && nafath.lastResult !== 'verified' && (
@@ -105,8 +107,8 @@ export function NafathStep() {
       {nafath.status === 'exhausted' && (
         <Alert tone="warning" title="Nafath verification was not completed">
           {fl
-            ? 'We will verify your identity manually. Next, enter your freelance certificate number. The agreement will not be available in this application.'
-            : 'We will verify the authorised person manually. You can still complete your business details. The agreement will not be available in this application.'}
+            ? 'We will verify your identity manually. Continue to send your application to our team.'
+            : 'We will verify the authorised person manually. You can still complete your business details. The contract will not be available in this application.'}
         </Alert>
       )}
 

@@ -39,3 +39,13 @@
 .pw-map-part { font-size: 13px; font-weight: 700; color: #6b6b6b; margin: 4px 6px 6px; }
 .pw-map .jm-svg { width: auto; max-width: 100%; height: auto; }
 .pw-screen { background: #fafafa; }
+/* v3: boards and open decisions */
+.pw-board { border: 1px solid #dedede; }
+.pw-board .jm-svg { width: auto; max-width: 100%; height: auto; }
+.pw-board-note { font-size: 18px; font-weight: 700; margin-top: 14px; }
+.pw-board-open { margin-top: 18px; }
+.pw-sub { font-size: 18px; font-weight: 700; margin: 22px 0 10px; }
+.pw-list { font-size: 16px; line-height: 1.5; padding-left: 24px; display: grid; gap: 6px; max-width: 1400px; }
+.pw-open .jm-open-list { font-size: 17px; gap: 12px; }
+.pw-panels { font-size: 18px; line-height: 1.5; padding-left: 26px; display: grid; gap: 12px; margin-top: 24px; max-width: 1700px; }
+.pw-map .jm-label-detail { font-size: 11px; }

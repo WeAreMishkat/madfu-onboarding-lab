@@ -1,33 +1,43 @@
 /**
  * Typed mock adapters for the future integrations. Nothing here calls a real provider: every answer
- * comes from the Prototype Controls (`Sim`). All values are synthetic.
- *
- * Provider names are deliberately neutral in the merchant UI. Which provider backs each adapter
- * (CR enrichment, bank ownership, certificates) is a pending product decision.
+ * comes from the Prototype Controls (`Sim`). All values are synthetic. Provider names are neutral:
+ * which provider backs each adapter is a pending decision.
  */
-import type { Certificate, CertificatesResult, CrRecord, CrResult, IbanResult, NafathResult, Person, Sim } from './types';
+import { matchingActivity } from './activity';
 import { normaliseIban } from './config';
+import type { Certificate, CertificatesResult, CrRecord, IbanResult, NafathResult, Person, Sim } from './types';
 
 /* ------------------------------------------------------------------ synthetic demo identities */
 
 /** The demo SMS code accepted by the simulated OTP service. */
 export const DEMO_SMS_CODE = '246810';
 
-/** Built at runtime so no national-ID-shaped literal sits in the source. */
+/** Built at runtime so no national-ID / mobile-shaped literal sits in the source. */
 export const DEMO = {
   cr: '7000000101',
   nationalId: ['1', '000000', '201'].join(''),
-  mobile: ['5', '0000', '0012'].join('')
+  mobile: ['5', '0000', '0012'].join(''),
+  otherMobile: ['5', '0000', '0099'].join('')
 };
 
+/** Synthetic Saudi-format IBAN with impossible check digits (00). */
 export const demoIban = (bankCode: '80' | '10' | '20', tail: string) => ['SA', '00', bankCode, '000000', '12345678', tail.padStart(4, '0').slice(-4)].join('');
 
-/* ------------------------------------------------------------------ CR verification adapter */
+/* ------------------------------------------------------------------ CR data adapter (registry + activities + address) */
 
-export function crAdapter(result: CrResult): { result: CrResult; record: CrRecord | null } {
-  if (result === 'valid') return { result, record: { legalName: 'Najd Roastery Trading Company', status: 'Active', expiry: '2028-03-13', city: 'Riyadh' } };
-  if (result === 'expired') return { result, record: { legalName: 'Najd Roastery Trading Company', status: 'Expired', expiry: '2026-08-31', city: 'Riyadh' } };
-  return { result, record: null };
+export function crAdapter(sim: Sim, declaredSub: string): CrRecord | null {
+  if (sim.cr.result !== 'found') return null;
+  return {
+    legalName: 'Najd Roastery Trading Company (demo)',
+    status: sim.cr.status,
+    issuedMonthsAgo: sim.cr.issuedMonthsAgo,
+    expiry: sim.cr.status === 'EXPIRED' ? '2026-08-31' : '2028-03-13',
+    city: 'Riyadh',
+    entity: sim.cr.entity,
+    legalForm: sim.cr.entity === 'NON_SAUDI' ? 'Limited liability company (foreign ownership, demo)' : 'Limited liability company (demo)',
+    nationalAddress: sim.cr.nationalAddress,
+    activity: sim.cr.activity === 'auto' ? matchingActivity(declaredSub) : sim.cr.activity
+  };
 }
 
 /* ------------------------------------------------------------------ associated parties adapter */
@@ -39,17 +49,13 @@ const PEOPLE: Person[] = [
 ];
 const COMPANY_PARTNER: Person = { id: 'c1', name: ['Najd', 'Holding', 'Group', 'Company'], idMasked: '700••••404', kind: 'company' };
 
-/**
- * Returns the raw associated parties. Companies are included on purpose: the UI must filter them
- * out because only individuals can verify with Nafath.
- */
+/** Raw associated parties. Companies are included on purpose: only individuals can use Nafath. */
 export function personsAdapter(result: 'one' | 'multiple' | 'none'): Person[] {
   if (result === 'none') return [COMPANY_PARTNER];
   if (result === 'one') return [PEOPLE[0], COMPANY_PARTNER];
   return [...PEOPLE, COMPANY_PARTNER];
 }
 export const eligiblePersons = (list: Person[]) => list.filter((p) => p.kind === 'individual');
-
 /** "Mohammed ••• ••• Al-Qahtani": first and last visible, second and third masked. */
 export const maskedName = (p: Person) => `${p.name[0]} ••• ••• ${p.name[3]}`;
 
@@ -58,26 +64,24 @@ export const maskedName = (p: Person) => `${p.name[0]} ••• ••• ${p.n
 export const NAFATH_NUMBERS = ['42', '17', '85', '63', '29'];
 export function nafathAdapter(sim: Sim, requestIndex: number): NafathResult {
   const q = sim.nafath.length ? sim.nafath : ['verified' as NafathResult];
-  return q[Math.min(requestIndex, q.length - 1)];
+  return q[Math.min(Math.max(requestIndex, 0), q.length - 1)];
 }
 
-/* ------------------------------------------------------------------ certificates adapter */
+/* ------------------------------------------------------------------ freelance certificates adapter */
 
-const CERTS: Certificate[] = [
-  { id: 'fl1', number: 'FL-400000001', category: 'Creative services', subcategory: 'Graphic design', status: 'active', madfuSub: 'services-design' },
-  { id: 'fl2', number: 'FL-400000002', category: 'Creative services', subcategory: 'Photography', status: 'active', madfuSub: 'services-photo' },
-  { id: 'fl3', number: 'FL-400000003', category: 'Education', subcategory: 'Private tutoring', status: 'active', madfuSub: 'services-training' }
-];
-
-export function certificatesAdapter(result: Exclude<CertificatesResult, 'none' | 'unavailable'>): Certificate[] {
+export function certificatesAdapter(result: Exclude<CertificatesResult, 'none' | 'unavailable'>, declaredSub: string): Certificate[] {
+  const own = matchingActivity(declaredSub);
+  const c1: Certificate = { id: 'fl1', number: 'FL-400000001', activityLabel: 'Declared activity (demo)', activity: own, status: 'active' };
+  const c2: Certificate = { id: 'fl2', number: 'FL-400000002', activityLabel: 'Photographic activities (demo)', activity: 'ACT-7420', status: 'active' };
+  const c3: Certificate = { id: 'fl3', number: 'FL-400000003', activityLabel: 'Coffee shops (demo)', activity: 'ACT-5630', status: 'active' };
   switch (result) {
-    case 'one': return [CERTS[0]];
-    case 'multiple': return CERTS;
-    case 'expired': return [{ ...CERTS[0], status: 'expired' }, CERTS[1]];
-    case 'inconsistent': return [{ ...CERTS[0], issue: 'inconsistent' }];
-    case 'duplicate': return [{ ...CERTS[0], issue: 'duplicate' }, CERTS[1]];
-    // Certificate activity maps to a Madfu subcategory different from the one chosen at screening.
-    case 'mismatch': return [CERTS[2]];
+    case 'one': return [c1];
+    case 'multiple': return [c1, c2, { ...c3, id: 'fl3' }];
+    case 'expired': return [{ ...c1, status: 'expired' }, c2];
+    case 'duplicate': return [{ ...c1, issue: 'duplicate' }, c2];
+    case 'inconsistent': return [{ ...c1, issue: 'inconsistent' }];
+    // The only certificate's activity differs from the declared category and requires a CR.
+    case 'mismatch': return [{ ...c3, id: 'fl1' }];
   }
 }
 
@@ -96,6 +100,8 @@ export function ibanAdapter(sim: Sim, checkIndex: number): IbanResult {
 
 /* ------------------------------------------------------------------ ids */
 
-export function newApplicationId(seed: number): string {
-  return `APP-${String(100000 + (seed % 900000)).padStart(6, '0')}`;
-}
+const pad = (n: number) => String(100000 + (Math.abs(n) % 900000)).padStart(6, '0');
+export const newApplicationId = (seed: number) => `APP-${pad(seed)}`;
+export const newQualificationId = (seed: number) => `KYB-${pad(seed * 7 + 13)}`;
+export const newContinueToken = (seed: number) => `CL-${pad(seed * 31 + 5)}${pad(seed * 17 + 3).slice(0, 3)}`;
+export const providerRef = (type: string, seed: number) => `SIM-${type}-${pad(seed).slice(-4)}`;

@@ -1,150 +1,308 @@
 /**
- * Madfu Proposed — pure transitions. Components call these through `apply(fn)`; tests call them
+ * Madfu Proposed v3 — pure transitions. Components call these through `apply(fn)`; tests call them
  * directly. No transition talks to a real service: answers come from the Prototype Controls (Sim).
+ *
+ * Order of the journey: Know Your Business (cheap, internal) -> Identify & Verify (OTP) -> Business
+ * Verification (paid, external, reused) -> Business & Banking -> Commercial Offer -> Review -> Contract
+ * -> Submit / Outcome.
  */
-import { LIMITS, classificationOf, findSub, isSelfService } from './config';
+import { reconcile } from './activity';
+import { LIMITS, RULE_FLAGS, isFreelancer } from './config';
+import { continuesToIdentity, evaluateEligibility, kybComplete } from './eligibility';
+import { evaluateGovernment } from './government';
 import {
-  DEMO_SMS_CODE, NAFATH_NUMBERS, bankFromIban, certificatesAdapter, crAdapter, eligiblePersons, ibanAdapter,
-  nafathAdapter, newApplicationId, personsAdapter
+  DEMO, DEMO_SMS_CODE, NAFATH_NUMBERS, bankFromIban, certificatesAdapter, crAdapter, demoIban, eligiblePersons, ibanAdapter,
+  nafathAdapter, newApplicationId, newContinueToken, newQualificationId, personsAdapter, providerRef
 } from './mock';
-import type { Application, InternalStatus, NafathResult, OutcomeKind, ProposedState, ReviewFlag, Sim, StepId } from './types';
+import { buildOffer } from './pricing';
+import { invalidate, log, makeRecord, reusable, reuseOnResume, store } from './verifications';
+import type {
+  Application, Backend, Flag, InternalStatus, NafathResult, OutcomeKind, ProposedState, ReasonCode, SectionId, Sim, StepId, Tenure,
+  VerificationType
+} from './types';
 
 /* ------------------------------------------------------------------ initial state */
 
 export function initialSim(): Sim {
-  return { identity: 'new', crResult: 'valid', persons: 'multiple', nafath: ['verified'], certificates: 'one', iban: ['verified'] };
+  return {
+    identity: 'new',
+    cr: { result: 'found', status: 'ACTIVE', issuedMonthsAgo: 26, entity: 'SAUDI', nationalAddress: 'VALID', activity: 'auto' },
+    persons: 'multiple',
+    nafath: ['verified'],
+    certificates: 'one',
+    iban: ['verified']
+  };
 }
 
 export function initialApplication(seed = Date.now()): Application {
   return {
-    id: newApplicationId(seed),
+    qualificationId: newQualificationId(seed),
+    id: null,
     createdAt: new Date(seed).toISOString(),
-    step: 'entry',
-    editing: null,
-    entry: { type: null, identifier: '', revenue: null, mobile: '' },
-    verifiedMobile: '',
-    identityCheck: null,
-    resumed: false,
+    step: 'kyb',
+    lastStep: 'kyb',
+    returnTo: null,
     editBaseline: null,
-    otp: { status: 'sent', attemptsLeft: LIMITS.otpAttempts, code: '', resendAt: 0 },
-    category: { group: '', sub: '' },
-    cr: { status: 'idle', tries: 0, record: null },
+    kyb: { kind: null, group: '', sub: '', revenue: null, channel: null, websiteUrl: '', mapsUrl: '' },
+    eligibility: null,
+    kybSnapshot: null,
+    lead: { name: '', mobile: '' },
+    identity: { identifier: '', mobile: '' },
+    identityCheck: null,
+    sessionMobile: '',
+    verifiedMobile: '',
+    otp: { purpose: 'application', status: 'sent', attemptsLeft: LIMITS.otpAttempts, code: '', resendAt: 0 },
+    resumed: false,
+    cr: { status: 'idle', tries: 0, record: null, decision: null, decisionReason: null },
+    activity: null,
     persons: { status: 'idle', tries: 0, list: [], selectedId: null },
-    nafath: { status: 'idle', failures: 0, requests: 0, lastResult: null, number: NAFATH_NUMBERS[0], verifiedPersonId: null },
-    certs: { status: 'idle', tries: 0, list: [], selectedId: null, manualNumber: '' },
-    business: {
-      iban: '', ibanStatus: 'idle', ibanFailures: 0, ibanLast: null, bankName: '', vat: null, vatNumber: '', vatLookup: 'idle',
-      channel: null, websiteUrl: '', mapsUrl: '', branches: ''
-    },
+    nafath: { status: 'idle', failures: 0, requests: 0, lastResult: null, number: NAFATH_NUMBERS[0], verifiedFor: null },
+    certs: { status: 'idle', tries: 0, list: [], selectedId: null },
+    business: { bankLinked: null, iban: '', ibanStatus: 'idle', ibanFailures: 0, ibanLast: null, bankName: '', vat: null, vatNumber: '', vatLookup: 'idle', branches: '' },
+    commercial: { optional: [], evidence: [], evidenceSkipped: false, agreed: null },
     contract: { status: 'unavailable', acceptedAt: '' },
+    verifications: {},
+    ledger: [],
     flags: [],
-    status: 'DRAFT',
+    status: 'QUALIFICATION_DRAFT',
     outcome: null,
+    outcomeReason: null,
     submittedAt: ''
   };
 }
 
+export const initialBackend = (): Backend => ({ qualifications: {}, applications: {}, identities: {}, leads: [], tokens: {}, sms: [] });
+
 export function initialState(): ProposedState {
-  return { app: initialApplication(), sim: initialSim(), scenarioId: null, saved: {} };
+  return { app: initialApplication(), sim: initialSim(), scenarioId: null, backend: initialBackend() };
 }
 
 /* ------------------------------------------------------------------ helpers */
 
+const now = () => new Date().toISOString();
 const withApp = (s: ProposedState, patch: Partial<Application>): ProposedState => ({ ...s, app: { ...s.app, ...patch } });
-const addFlag = (flags: ReviewFlag[], f: ReviewFlag) => (flags.includes(f) ? flags : [...flags, f]);
-const dropFlags = (flags: ReviewFlag[], drop: ReviewFlag[]) => flags.filter((f) => !drop.includes(f));
+const mapApp = (s: ProposedState, f: (a: Application) => Application): ProposedState => ({ ...s, app: f(s.app) });
+export const addFlag = (flags: Flag[], f: Flag) => (flags.includes(f) ? flags : [...flags, f]);
+export const dropFlags = (flags: Flag[], drop: Flag[]) => flags.filter((f) => !drop.includes(f));
+const fl = (app: Application) => isFreelancer(app.kyb.kind);
 
-function finish(s: ProposedState, outcome: OutcomeKind, status: InternalStatus): ProposedState {
-  return persist(withApp(s, { step: 'outcome', outcome, status, editing: null, submittedAt: new Date().toISOString() }));
+/** Linear order of screens, used for "furthest step reached". */
+const ORDER: StepId[] = ['kyb', 'lead', 'identify', 'otp', 'cr-verify', 'persons', 'nafath', 'certificates', 'business', 'commercial', 'review', 'contract', 'outcome'];
+const furthest = (a: StepId, b: StepId) => (ORDER.indexOf(b) > ORDER.indexOf(a) ? b : a);
+
+/** Move to a step and remember the furthest step reached. Saves the application. */
+export function go(s: ProposedState, step: StepId, patch: Partial<Application> = {}): ProposedState {
+  return persist(withApp(s, { ...patch, step, lastStep: furthest(s.app.lastStep, step) }));
 }
 
-/** Save the application in the simulated backend so it can be resumed / detected as a duplicate. */
+/** Save the application in the simulated backend (resume, duplicate detection, Continue links). */
 export function persist(s: ProposedState): ProposedState {
-  const { identifier, mobile } = s.app.entry;
-  if (!identifier || !s.app.verifiedMobile) return s;
-  const terminalNoApp = s.app.outcome && ['EXISTING_MERCHANT', 'DUPLICATE_IDENTITY', 'ADDITIONAL_CERTIFICATE', 'SALES_LEAD'].includes(s.app.outcome);
-  if (terminalNoApp) return s;
-  return { ...s, saved: { ...s.saved, [identifier]: { mobile, app: s.app } } };
+  const { app } = s;
+  if (!app.id) return s;
+  return {
+    ...s,
+    backend: {
+      ...s.backend,
+      applications: { ...s.backend.applications, [app.id]: app },
+      identities: app.identity.identifier ? { ...s.backend.identities, [app.identity.identifier]: app.id } : s.backend.identities
+    }
+  };
 }
 
-/* ------------------------------------------------------------------ the path (drives Back and progress) */
+function finish(s: ProposedState, outcome: OutcomeKind, status: InternalStatus, reason: ReasonCode | null = null): ProposedState {
+  return go(s, 'outcome', { outcome, status, outcomeReason: reason, returnTo: null, editBaseline: null, submittedAt: now() });
+}
+
+function sendOtp(s: ProposedState, purpose: Application['otp']['purpose'], to: string): ProposedState {
+  const app = log({ ...s.app, otp: { purpose, status: 'sent', attemptsLeft: LIMITS.otpAttempts, code: '', resendAt: Date.now() + LIMITS.otpResendSeconds * 1000 } }, { kind: 'otp', check: 'OTP', note: `SMS code sent (${purpose})` });
+  return {
+    ...s,
+    app: { ...app, step: 'otp', lastStep: furthest(app.lastStep, 'otp') },
+    backend: { ...s.backend, sms: [...s.backend.sms, { to, kind: 'otp', text: `Your Madfu verification code is ${DEMO_SMS_CODE} (demo).`, at: now() }] }
+  };
+}
+
+/* ------------------------------------------------------------------ path, Back */
 
 export function pathFor(app: Application): StepId[] {
-  const p: StepId[] = ['entry', 'otp', 'category'];
-  if (app.entry.type === 'CR') {
+  if (app.eligibility && app.eligibility.result === 'SALES_LEAD') return ['kyb', 'lead', 'otp', 'outcome'];
+  const p: StepId[] = ['kyb', 'identify', 'otp'];
+  if (app.kyb.kind === 'CR') {
     p.push('cr-verify', 'persons');
     if (app.persons.status !== 'none') p.push('nafath');
   } else {
-    p.push('nafath');
-    p.push(app.nafath.status === 'exhausted' || app.certs.status === 'none' || app.certs.manualNumber ? 'manual-certificate' : 'certificates');
+    p.push('nafath', 'certificates');
   }
-  p.push('business', 'review');
+  p.push('business', 'commercial', 'review');
   if (contractEligible(app)) p.push('contract');
   p.push('outcome');
   return p;
 }
 
+/**
+ * Back never re-enters a verified SMS code, and never leaves an application for the identity page
+ * once the application exists (identity changes go through Review › Edit).
+ */
 export function previousStep(app: Application): StepId | null {
+  if (app.step === 'outcome' || app.step === 'otp') return null;
   const p = pathFor(app);
   const i = p.indexOf(app.step);
   if (i <= 0) return null;
   const prev = p[i - 1];
-  // Never send the applicant back into a code they already verified.
-  return prev === 'otp' ? 'entry' : prev;
+  if (prev === 'otp') return app.id ? null : 'identify';
+  return prev;
 }
 
 export const back = (s: ProposedState): ProposedState => {
   const prev = previousStep(s.app);
-  return prev ? persist(withApp(s, { step: prev, editing: null })) : s;
+  return prev ? persist(withApp(s, { step: prev })) : s;
 };
 
-/* ------------------------------------------------------------------ entry + identity check */
+/* ------------------------------------------------------------------ Stage 1: Know Your Business */
+
+export const setKyb = (s: ProposedState, patch: Partial<Application['kyb']>): ProposedState =>
+  withApp(s, { kyb: { ...s.app.kyb, ...patch } });
+
+/** Evaluate eligibility (internal, no external call) and route. Saves the qualification record. */
+export function submitKyb(s: ProposedState): ProposedState {
+  const k = s.app.kyb;
+  if (!kybComplete(k)) return s;
+  if (s.app.id && s.app.returnTo) return saveKybEdit(s);
+  const eligibility = evaluateEligibility({ kind: k.kind, sub: k.sub, revenue: k.revenue, channel: k.channel });
+  const backend = { ...s.backend, qualifications: { ...s.backend.qualifications, [s.app.qualificationId]: { kyb: k, eligibility, at: eligibility.at, linkedTo: null } } };
+  const flags = eligibility.result === 'MANUAL_REVIEW' ? addFlag(s.app.flags, 'CATEGORY_MANUAL_REVIEW') : dropFlags(s.app.flags, ['CATEGORY_MANUAL_REVIEW']);
+  const next: ProposedState = { ...s, backend, app: { ...s.app, eligibility, flags } };
+  switch (eligibility.result) {
+    case 'ELIGIBLE':
+    case 'MANUAL_REVIEW':
+      return go(next, 'identify');
+    case 'SALES_LEAD':
+      return go(next, 'lead');
+    case 'NOT_ELIGIBLE':
+      return finish(next, 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', eligibility.reason);
+    case 'TEMPORARILY_NOT_ELIGIBLE':
+      return finish(next, 'TEMPORARILY_NOT_ELIGIBLE', 'TEMPORARILY_NOT_ELIGIBLE', eligibility.reason);
+  }
+}
+
+/** Saving Stage-1 answers edited after the application exists. Internal re-evaluation only. */
+function saveKybEdit(s: ProposedState): ProposedState {
+  const app = s.app;
+  const k = app.kyb;
+  if (!kybComplete(k)) return s;
+  const base = app.editBaseline?.kyb;
+  const eligibility = evaluateEligibility({ kind: k.kind, sub: k.sub, revenue: k.revenue, channel: k.channel });
+  let next: ProposedState = withApp(s, { eligibility, kybSnapshot: app.kybSnapshot ? { ...app.kybSnapshot, ...k, eligibility } : null });
+  if (!continuesToIdentity(eligibility)) {
+    if (eligibility.result === 'SALES_LEAD') {
+      const status: InternalStatus = eligibility.reason === 'REVENUE_BELOW_BAND' ? 'LEAD_LOW_REVENUE' : 'LEAD_HIGH_REVENUE';
+      return finish(next, 'SALES_LEAD', status, eligibility.reason);
+    }
+    const out = eligibility.result === 'TEMPORARILY_NOT_ELIGIBLE' ? 'TEMPORARILY_NOT_ELIGIBLE' : 'NOT_ELIGIBLE';
+    return finish(next, out, out, eligibility.reason);
+  }
+  let flags = eligibility.result === 'MANUAL_REVIEW' ? addFlag(next.app.flags, 'CATEGORY_MANUAL_REVIEW') : dropFlags(next.app.flags, ['CATEGORY_MANUAL_REVIEW']);
+  next = withApp(next, { flags });
+  // Category changed: reconcile again on the STORED activity (no provider call), re-derive pricing.
+  if (base && base.sub !== k.sub) {
+    const activity = storedActivity(next.app);
+    if (activity) {
+      const rc = reconcile(k.kind, k.sub, activity.code);
+      next = mapApp(next, (a) => log(a, { kind: 'reuse', check: activity.source === 'CR' ? 'CR_DATA' : 'FL_CERTS', note: 'Category changed: reconciliation re-run on the stored activity, no new provider call' }));
+      if (rc.action === 'stop') return finish(next, 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', 'ACTIVITY_REGULATED');
+      flags = dropFlags(next.app.flags, ['ACTIVITY_AMBIGUOUS', 'ACTIVITY_UNMAPPED', 'ACTIVITY_CONFLICT_REVIEW']);
+      if (rc.action === 'manual_review') flags = addFlag(flags, rc.outcome === 'AMBIGUOUS' ? 'ACTIVITY_AMBIGUOUS' : 'ACTIVITY_UNMAPPED');
+      next = withApp(next, { flags, activity: { source: activity.source, activity: activity.code, declaredSub: k.sub, outcome: rc.outcome, action: rc.action, acknowledged: false } });
+    }
+    const agreed = next.app.commercial.agreed;
+    if (agreed && JSON.stringify(buildOffer(k.sub, next.app.commercial.optional, agreed.at).plans) !== JSON.stringify(agreed.plans)) {
+      next = withApp(next, { commercial: { ...next.app.commercial, agreed: null } });
+    }
+  }
+  return returnFromEdit(next);
+}
+
+function storedActivity(app: Application): { source: 'CR' | 'CERTIFICATE'; code: string } | null {
+  if (app.kyb.kind === 'CR' && app.cr.record) return { source: 'CR', code: app.cr.record.activity };
+  const cert = app.certs.list.find((c) => c.id === app.certs.selectedId);
+  return cert ? { source: 'CERTIFICATE', code: cert.activity } : null;
+}
+
+/* ------------------------------------------------------------------ lead capture (Sales route, Freelancer without certificate) */
+
+export const setLead = (s: ProposedState, patch: Partial<Application['lead']>) => withApp(s, { lead: { ...s.app.lead, ...patch } });
+
+export function submitLead(s: ProposedState): ProposedState {
+  return sendOtp(s, 'lead', s.app.lead.mobile);
+}
+
+function completeLead(s: ProposedState): ProposedState {
+  const e = s.app.eligibility!;
+  const status: InternalStatus = e.reason === 'FL_CERT_REQUIRED' ? 'LEAD_FL_CERT_REQUIRED' : e.reason === 'REVENUE_BELOW_BAND' ? 'LEAD_LOW_REVENUE' : 'LEAD_HIGH_REVENUE';
+  const lead = { qualificationId: s.app.qualificationId, kyb: s.app.kyb, eligibility: e, name: s.app.lead.name, mobile: s.app.lead.mobile, status, at: now() };
+  const next = { ...s, backend: { ...s.backend, leads: [...s.backend.leads, lead] } };
+  return finish(next, e.reason === 'FL_CERT_REQUIRED' ? 'FL_CERT_REQUIRED' : 'SALES_LEAD', status, e.reason);
+}
+
+/* ------------------------------------------------------------------ Stage 2: Identify & Verify */
+
+export const setIdentity = (s: ProposedState, patch: Partial<Application['identity']>) => withApp(s, { identity: { ...s.app.identity, ...patch } });
 
 /**
- * Backend checks run on Next, in the specified order: identity FIRST (CR / National ID), then the
- * saved-application match by mobile. Mobile reuse alone never rejects an application.
+ * Backend checks, identity first: existing merchant, application for this identity under the same
+ * mobile (resume) or another mobile (duplicate). A mobile used with other identities never rejects.
  */
 export function identityCheck(s: ProposedState): Application['identityCheck'] {
   if (s.sim.identity !== 'new') return s.sim.identity;
-  const saved = s.saved[s.app.entry.identifier];
-  if (!saved || saved.app.id === s.app.id) return 'new';
-  return saved.mobile === s.app.entry.mobile ? 'current_application' : 'duplicate_identity';
+  const appId = s.backend.identities[s.app.identity.identifier];
+  if (!appId || appId === s.app.id) return 'new';
+  const saved = s.backend.applications[appId];
+  return saved && saved.verifiedMobile === s.app.identity.mobile ? 'current_application' : 'duplicate_identity';
 }
 
-export function submitEntry(s: ProposedState): ProposedState {
+export function submitIdentify(s: ProposedState): ProposedState {
+  if (s.app.id && s.app.returnTo) return saveIdentityEdit(s);
   const check = identityCheck(s);
-  const editingFromReview = s.app.editing === 'review';
-  let app: Application = { ...s.app, identityCheck: check };
-
-  // Editing from Review: dependent verifications are invalidated when identity values change.
-  if (editingFromReview) app = invalidateForEntryChange(app);
-
-  // Same session, same mobile: no new code.
-  if (app.verifiedMobile && app.verifiedMobile === app.entry.mobile && check === 'new') {
-    return routeAfterOtp({ ...s, app });
-  }
-  return { ...s, app: { ...app, step: 'otp', verifiedMobile: '', otp: { status: 'sent', attemptsLeft: LIMITS.otpAttempts, code: '', resendAt: Date.now() + LIMITS.otpResendSeconds * 1000 } } };
+  return sendOtp(withApp(s, { identityCheck: check }), 'application', s.app.identity.mobile);
 }
 
-function invalidateForEntryChange(app: Application): Application {
-  const base = app.editBaseline;
-  if (!base) return app;
-  const idChanged = base.type !== app.entry.type || base.identifier !== app.entry.identifier;
-  if (!idChanged) return { ...app, editBaseline: null };
-  return {
-    ...app,
-    editing: null,
-    editBaseline: null,
-    category: base.type !== app.entry.type ? { group: '', sub: '' } : app.category,
-    cr: { status: 'idle', tries: 0, record: null },
-    persons: { status: 'idle', tries: 0, list: [], selectedId: null },
-    // The Nafath attempt counter belongs to the application and is not reset.
-    nafath: { ...app.nafath, status: app.nafath.status === 'exhausted' ? 'exhausted' : 'idle', verifiedPersonId: null, lastResult: null },
-    certs: { status: 'idle', tries: 0, list: [], selectedId: null, manualNumber: '' },
-    business: { ...app.business, ibanStatus: app.business.iban ? 'idle' : app.business.ibanStatus, bankName: '' },
-    contract: { status: 'unavailable', acceptedAt: '' },
-    flags: dropFlags(app.flags, ['CR_EXPIRED', 'NO_ELIGIBLE_PERSON', 'CERTIFICATE_MANUAL', 'CERTIFICATE_INCONSISTENT', 'CERTIFICATE_CATEGORY_MISMATCH', 'IBAN_UNVERIFIED', 'IBAN_NOT_CHECKED'])
-  };
+/** After a successful code for a new identity: create the Application and link the Stage-1 record. */
+function createApplication(s: ProposedState): ProposedState {
+  const at = now();
+  const id = newApplicationId(Date.parse(s.app.createdAt) + Object.keys(s.backend.applications).length);
+  const e = s.app.eligibility!;
+  const kybSnapshot = { ...s.app.kyb, qualificationId: s.app.qualificationId, eligibility: e, linkedAt: at };
+  const q = s.backend.qualifications[s.app.qualificationId];
+  const backend = q ? { ...s.backend, qualifications: { ...s.backend.qualifications, [s.app.qualificationId]: { ...q, linkedTo: id } } } : s.backend;
+  const first: StepId = s.app.kyb.kind === 'CR' ? 'cr-verify' : 'nafath';
+  return go({ ...s, backend }, first, { id, kybSnapshot, status: 'DRAFT', verifiedMobile: s.app.identity.mobile, sessionMobile: s.app.identity.mobile });
+}
+
+function routeAfterIdentityOtp(s: ProposedState): ProposedState {
+  switch (s.app.identityCheck) {
+    case 'existing_merchant': return finish(s, 'EXISTING_MERCHANT', 'EXISTING_MERCHANT');
+    case 'duplicate_identity': return finish(s, 'DUPLICATE_IDENTITY', 'DUPLICATE_IDENTITY');
+    case 'current_application': return resumeExisting(s);
+    default: return createApplication(s);
+  }
+}
+
+/** Same identity + same mobile: reopen the saved application. Today's Stage-1 draft is discarded. */
+function resumeExisting(s: ProposedState): ProposedState {
+  const appId = s.backend.identities[s.app.identity.identifier];
+  const saved = appId ? s.backend.applications[appId] : null;
+  const base = saved ?? resumeFixture(s.app);
+  let app: Application = { ...base, ledger: [...base.ledger, ...s.app.ledger.filter((e) => e.kind === 'otp').slice(-1)], sessionMobile: s.app.identity.mobile, resumed: true, otp: { ...s.app.otp, status: 'verified' } };
+  app = reuseOnResume(app);
+  const step = firstIncomplete(app);
+  return persist({ ...s, app: { ...app, step, lastStep: furthest(app.lastStep, step), returnTo: null } });
+}
+
+/** The saved application used when the Prototype Controls force "saved application". */
+function resumeFixture(app: Application): Application {
+  const kind = app.kyb.kind === 'FL_CERT' ? 'FL_CERT' : 'CR';
+  const base = prefill(kind, 'business');
+  return { ...base, identity: { ...app.identity }, verifiedMobile: app.identity.mobile };
 }
 
 /* ------------------------------------------------------------------ OTP */
@@ -152,132 +310,182 @@ function invalidateForEntryChange(app: Application): Application {
 export function verifyOtp(s: ProposedState, code: string): ProposedState {
   const otp = s.app.otp;
   if (otp.status === 'expired' || otp.status === 'exhausted') return s;
-  if (code === DEMO_SMS_CODE) {
-    return routeAfterOtp(withApp(s, { otp: { ...otp, status: 'verified', code }, verifiedMobile: s.app.entry.mobile }));
+  if (code !== DEMO_SMS_CODE) {
+    const attemptsLeft = otp.attemptsLeft - 1;
+    return withApp(s, { otp: { ...otp, code, attemptsLeft, status: attemptsLeft <= 0 ? 'exhausted' : 'incorrect' } });
   }
-  const attemptsLeft = otp.attemptsLeft - 1;
-  return withApp(s, { otp: { ...otp, code, attemptsLeft, status: attemptsLeft <= 0 ? 'exhausted' : 'incorrect' } });
+  const verified = withApp(s, { otp: { ...otp, status: 'verified', code } });
+  switch (otp.purpose) {
+    case 'lead': return completeLead(verified);
+    case 'application': return routeAfterIdentityOtp(verified);
+    case 'resume': {
+      const app = reuseOnResume({ ...verified.app, sessionMobile: verified.app.verifiedMobile, resumed: true });
+      const step = firstIncomplete(app);
+      return persist({ ...verified, app: { ...app, step, lastStep: furthest(app.lastStep, step), returnTo: null } });
+    }
+    case 'mobile-change': {
+      const mobile = verified.app.identity.mobile;
+      return returnFromEdit(withApp(verified, { verifiedMobile: mobile, sessionMobile: mobile }));
+    }
+  }
 }
 
 export const expireOtp = (s: ProposedState): ProposedState => withApp(s, { otp: { ...s.app.otp, status: 'expired' } });
-export const resendOtp = (s: ProposedState): ProposedState =>
-  withApp(s, { otp: { status: 'sent', attemptsLeft: LIMITS.otpAttempts, code: '', resendAt: Date.now() + LIMITS.otpResendSeconds * 1000 } });
-
-/** Routing happens only after a successful code. */
-export function routeAfterOtp(s: ProposedState): ProposedState {
-  const { type, revenue } = s.app.entry;
-  switch (s.app.identityCheck) {
-    case 'existing_merchant': return finish(s, 'EXISTING_MERCHANT', 'EXISTING_MERCHANT');
-    case 'duplicate_identity': return finish(s, 'DUPLICATE_IDENTITY', 'DUPLICATE_IDENTITY');
-    case 'additional_certificate':
-      if (type === 'FL') return finish(s, 'ADDITIONAL_CERTIFICATE', 'ADDITIONAL_CERTIFICATE_PENDING');
-      return finish(s, 'EXISTING_MERCHANT', 'EXISTING_MERCHANT');
-    case 'current_application': return resume(s);
-    default: break;
-  }
-  if (!isSelfService(type!, revenue!)) {
-    return finish(s, 'SALES_LEAD', revenue === 'BELOW_100K' ? 'SALES_LEAD_LOW_REVENUE' : 'SALES_LEAD_HIGH_REVENUE');
-  }
-  // New application → category. After an edit from Review → the first step that still needs input.
-  return persist(withApp(s, { step: firstIncomplete(s.app), editing: null }));
+export const resendOtp = (s: ProposedState): ProposedState => {
+  const to = s.app.otp.purpose === 'lead' ? s.app.lead.mobile : s.app.otp.purpose === 'resume' ? s.app.verifiedMobile : s.app.identity.mobile;
+  return sendOtp(s, s.app.otp.purpose, to);
+};
+/** "Edit mobile" from the code screen: back to the form that asked for it. */
+export function editMobileFromOtp(s: ProposedState): ProposedState {
+  const step: StepId = s.app.otp.purpose === 'lead' ? 'lead' : 'identify';
+  return withApp(s, { step });
 }
 
-/** Reopen the saved application at its last step (or a prepared demo application). */
-export function resume(s: ProposedState): ProposedState {
-  const saved = s.saved[s.app.entry.identifier]?.app;
-  const base = saved ?? resumeFixture(s.app);
-  return { ...s, app: { ...base, resumed: true, verifiedMobile: s.app.entry.mobile, otp: { ...s.app.otp, status: 'verified' }, identityCheck: 'current_application' } };
+/* ------------------------------------------------------------------ Continue Application link (resume) */
+
+/** "Save & exit": send a secure Continue Application link to the verified mobile. */
+export function sendContinueLink(s: ProposedState): ProposedState {
+  const { app } = s;
+  if (!app.id || !app.verifiedMobile) return s;
+  const token = newContinueToken(Date.now() + s.backend.sms.length);
+  const saved = persist(s);
+  return {
+    ...saved,
+    backend: {
+      ...saved.backend,
+      tokens: { ...saved.backend.tokens, [token]: app.id },
+      sms: [...saved.backend.sms, { to: app.verifiedMobile, kind: 'continue-link', token, text: 'Continue your Madfu application (demo link).', at: now() }]
+    }
+  };
 }
 
-/** The "current application" used when the Prototype Controls force one: saved after business details started. */
-function resumeFixture(app: Application): Application {
-  const filled = prefill(app.entry.type ?? 'CR', 'business', initialSim(), app);
-  return { ...filled, business: { ...filled.business, channel: 'online', websiteUrl: 'https://shop.example.com' } };
+/** The visitor left: a new browser session with no application open. */
+export const leaveSession = (s: ProposedState): ProposedState => ({ ...s, app: initialApplication(), scenarioId: s.scenarioId });
+
+/**
+ * Opening the link identifies the application but does NOT authorise access: a new session starts on
+ * the OTP screen with the known mobile. Nothing else is re-asked; nothing is re-verified.
+ */
+export function openContinueLink(s: ProposedState, token: string): ProposedState {
+  const appId = s.backend.tokens[token];
+  const saved = appId ? s.backend.applications[appId] : null;
+  if (!saved) return { ...s, app: { ...initialApplication(), step: 'kyb' } };
+  const app: Application = { ...saved, sessionMobile: '', resumed: false, returnTo: null, editBaseline: null };
+  return sendOtp({ ...s, app }, 'resume', saved.verifiedMobile);
 }
 
-/* ------------------------------------------------------------------ category screening */
+/* ------------------------------------------------------------------ Stage 3: CR verification */
 
-export function submitCategory(s: ProposedState): ProposedState {
-  const cls = classificationOf(s.app.category.sub);
-  let flags = dropFlags(s.app.flags, ['CATEGORY_MANUAL_REVIEW', 'FL_CR_ONLY_CATEGORY']);
-  if (cls === 'BLOCKED') {
-    // No government, Nafath or bank calls for a blocked category. Neutral confirmation only.
-    return finish(withApp(s, { flags }), 'CATEGORY_REVIEW', 'CATEGORY_BLOCKED');
-  }
-  if (cls === 'MANUAL_REVIEW') flags = addFlag(flags, 'CATEGORY_MANUAL_REVIEW');
-  if (cls === 'CR_ONLY' && s.app.entry.type === 'FL') flags = addFlag(flags, 'FL_CR_ONLY_CATEGORY');
-  const next: StepId = s.app.editing === 'review' ? 'review' : s.app.entry.type === 'CR' ? 'cr-verify' : 'nafath';
-  return persist(withApp(s, { flags, step: next, editing: next === 'review' ? null : s.app.editing }));
-}
+const crFingerprint = (app: Application) => `cr:${app.identity.identifier}`;
 
-/* ------------------------------------------------------------------ CR verification */
-
+/** Retrieve CR data once; on later visits the stored result is reused. */
 export function runCrVerification(s: ProposedState): ProposedState {
-  const { result, record } = crAdapter(s.sim.crResult);
+  const fp = crFingerprint(s.app);
+  if (reusable(s.app, 'CR_DATA', fp) && s.app.cr.record) {
+    return persist(mapApp(s, (a) => log(a, { kind: 'reuse', check: 'CR_DATA', note: 'Stored CR data reused — no new provider call' })));
+  }
   const tries = s.app.cr.tries + 1;
-  let flags = dropFlags(s.app.flags, ['CR_EXPIRED']);
-  if (result === 'expired') flags = addFlag(flags, 'CR_EXPIRED');
-  return persist(withApp(s, { cr: { status: result, tries, record }, flags }));
+  let app = log(s.app, { kind: 'call', check: 'CR_DATA', note: `CR data retrieval (attempt ${tries})` });
+  const rec = crAdapter(s.sim, app.kyb.sub);
+  if (s.sim.cr.result === 'not_found') return persist({ ...s, app: { ...app, cr: { status: 'not_found', tries, record: null, decision: null, decisionReason: null } } });
+  if (!rec) return persist({ ...s, app: { ...app, cr: { status: 'unavailable', tries, record: null, decision: null, decisionReason: null } } });
+
+  app = store(app, makeRecord('CR_DATA', fp, `${rec.status}, ${rec.issuedMonthsAgo} months, address ${rec.nationalAddress.toLowerCase()}`, now(), providerRef('CR', tries)));
+  const gov = evaluateGovernment(rec);
+  let flags = dropFlags(app.flags, ['ADDITIONAL_DOCUMENTS_REQUIRED', 'NATIONAL_ADDRESS_MISSING', 'NATIONAL_ADDRESS_EXPIRED', 'ACTIVITY_AMBIGUOUS', 'ACTIVITY_UNMAPPED', 'ACTIVITY_CONFLICT_REVIEW']);
+  gov.flags.forEach((f) => { flags = addFlag(flags, f); });
+  app = { ...app, flags, cr: { status: 'loaded', tries, record: rec, decision: gov.action, decisionReason: gov.reason } };
+  const next = { ...s, app };
+  if (gov.action === 'manual_review') return finish(next, 'MANUAL_VERIFICATION', 'SUBMITTED_MANUAL_VERIFICATION', gov.reason);
+  if (gov.action === 'not_eligible') return finish(next, 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', gov.reason);
+  if (gov.action === 'temporarily_not_eligible') return finish(next, 'TEMPORARILY_NOT_ELIGIBLE', 'TEMPORARILY_NOT_ELIGIBLE', gov.reason);
+  return applyReconciliation(next, 'CR', rec.activity);
 }
 
-/** Expired CR is allowed to progress (flagged internally); invalid / not found cannot continue. */
-export const crCanContinue = (app: Application) => app.cr.status === 'valid' || app.cr.status === 'expired';
+function applyReconciliation(s: ProposedState, source: 'CR' | 'CERTIFICATE', activityCode: string): ProposedState {
+  const k = s.app.kyb;
+  const rc = reconcile(k.kind!, k.sub, activityCode);
+  if (rc.action === 'stop') return finish(withApp(s, { activity: { source, activity: activityCode, declaredSub: k.sub, outcome: rc.outcome, action: 'stop', acknowledged: false } }), 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', 'ACTIVITY_REGULATED');
+  let flags = dropFlags(s.app.flags, ['ACTIVITY_AMBIGUOUS', 'ACTIVITY_UNMAPPED', 'ACTIVITY_CONFLICT_REVIEW']);
+  if (rc.action === 'manual_review') flags = addFlag(flags, rc.outcome === 'AMBIGUOUS' ? 'ACTIVITY_AMBIGUOUS' : 'ACTIVITY_UNMAPPED');
+  return persist(withApp(s, { flags, activity: { source, activity: activityCode, declaredSub: k.sub, outcome: rc.outcome, action: rc.action, acknowledged: false } }));
+}
+
+/** CONFLICT: the applicant continues; the team confirms the activity. No automatic contract. */
+export function acknowledgeActivity(s: ProposedState): ProposedState {
+  if (!s.app.activity) return s;
+  return persist(withApp(s, { activity: { ...s.app.activity, acknowledged: true }, flags: addFlag(s.app.flags, 'ACTIVITY_CONFLICT_REVIEW') }));
+}
+
+export const activityPending = (app: Application) => app.activity?.action === 'clarify' && !app.activity.acknowledged;
+export const crCanContinue = (app: Application) => app.cr.status === 'loaded' && app.cr.decision === 'continue' && !activityPending(app);
+
+export const continueFromCr = (s: ProposedState): ProposedState => (crCanContinue(s.app) ? go(s, s.app.returnTo ?? 'persons', { returnTo: null }) : s);
 
 /* ------------------------------------------------------------------ authorised people */
 
+const personsFingerprint = (app: Application) => `persons:${app.identity.identifier}`;
+
 export function loadPersons(s: ProposedState): ProposedState {
+  const fp = personsFingerprint(s.app);
+  if (reusable(s.app, 'PERSONS', fp) && s.app.persons.status !== 'idle') {
+    return persist(mapApp(s, (a) => log(a, { kind: 'reuse', check: 'PERSONS', note: 'Stored people list reused — no new provider call' })));
+  }
   const tries = s.app.persons.tries + 1;
-  if (s.sim.persons === 'unavailable') return withApp(s, { persons: { ...s.app.persons, status: 'unavailable', tries } });
+  let app = log(s.app, { kind: 'call', check: 'PERSONS', note: `Associated people retrieval (attempt ${tries})` });
+  if (s.sim.persons === 'unavailable') return persist({ ...s, app: { ...app, persons: { ...app.persons, status: 'unavailable', tries } } });
   const list = personsAdapter(s.sim.persons);
   const eligible = eligiblePersons(list);
-  return persist(withApp(s, { persons: { status: eligible.length ? 'loaded' : 'none', tries, list, selectedId: eligible.length === 1 ? eligible[0].id : s.app.persons.selectedId } }));
+  app = store(app, makeRecord('PERSONS', fp, `${eligible.length} eligible individual(s)`, now(), providerRef('PPL', tries)));
+  return persist({ ...s, app: { ...app, persons: { status: eligible.length ? 'loaded' : 'none', tries, list, selectedId: eligible.length === 1 ? eligible[0].id : app.persons.selectedId } } });
 }
 
 /**
  * Changing the selected person never resets the shared attempt counter. A successful verification
- * belonged to the previously selected person, so it (and any contract) is invalidated.
+ * belonged to the previous person, so it is invalidated (and with it the contract).
  */
 export function selectPerson(s: ProposedState, id: string): ProposedState {
   const n = s.app.nafath;
-  const invalidate = n.status === 'verified' && n.verifiedPersonId !== id;
-  const status = n.status === 'exhausted' ? 'exhausted' : n.status === 'verified' && !invalidate ? 'verified' : 'idle';
-  return withApp(s, {
-    persons: { ...s.app.persons, selectedId: id },
-    nafath: { ...n, status, verifiedPersonId: invalidate ? null : n.verifiedPersonId },
-    contract: invalidate ? { status: 'unavailable', acceptedAt: '' } : s.app.contract
-  });
+  const changedAfterSuccess = n.status === 'verified' && n.verifiedFor !== id;
+  let app: Application = { ...s.app, persons: { ...s.app.persons, selectedId: id } };
+  if (changedAfterSuccess) {
+    app = invalidate(app, ['NAFATH'], 'Selected authorised person changed');
+    app = { ...app, nafath: { ...n, status: 'idle', verifiedFor: null }, contract: { status: 'unavailable', acceptedAt: '' } };
+  }
+  return { ...s, app };
 }
 
-/** No eligible individual (or provider down after retries): continue to a manual authority check. */
 export function continueWithoutPerson(s: ProposedState): ProposedState {
-  return persist(withApp(s, {
-    persons: { ...s.app.persons, status: 'none' },
-    flags: addFlag(addFlag(s.app.flags, 'NO_ELIGIBLE_PERSON'), 'NAFATH_UNVERIFIED'),
-    step: 'business'
-  }));
+  return go(s, 'business', { persons: { ...s.app.persons, status: 'none' }, flags: addFlag(addFlag(s.app.flags, 'NO_ELIGIBLE_PERSON'), 'NAFATH_UNVERIFIED') });
 }
 
 /* ------------------------------------------------------------------ Nafath */
 
+const nafathSubject = (app: Application) => (app.kyb.kind === 'CR' ? app.persons.selectedId ?? '' : app.identity.identifier);
+const nafathFingerprint = (app: Application) => `nafath:${app.id}:${nafathSubject(app)}`;
 export const nafathRemaining = (app: Application) => Math.max(0, LIMITS.nafathAttempts - app.nafath.failures);
 
 export function startNafath(s: ProposedState): ProposedState {
-  if (s.app.nafath.failures >= LIMITS.nafathAttempts) return withApp(s, { nafath: { ...s.app.nafath, status: 'exhausted' } });
-  const requests = s.app.nafath.requests + 1;
-  return withApp(s, { step: 'nafath', nafath: { ...s.app.nafath, status: 'waiting', requests, number: NAFATH_NUMBERS[(requests - 1) % NAFATH_NUMBERS.length] } });
+  const n = s.app.nafath;
+  if (reusable(s.app, 'NAFATH', nafathFingerprint(s.app))) {
+    return go(mapApp(s, (a) => log(a, { kind: 'reuse', check: 'NAFATH', note: 'Nafath verified previously — reused, no new request' })), 'nafath', { nafath: { ...n, status: 'verified' } });
+  }
+  if (n.failures >= LIMITS.nafathAttempts) return withApp(s, { step: 'nafath', nafath: { ...n, status: 'exhausted' } });
+  const requests = n.requests + 1;
+  const app = log(s.app, { kind: 'call', check: 'NAFATH', note: `Nafath request ${requests}` });
+  return go({ ...s, app }, 'nafath', { nafath: { ...n, status: 'waiting', requests, number: NAFATH_NUMBERS[(requests - 1) % NAFATH_NUMBERS.length] } });
 }
 
-/** Rejected and timeout count against the shared limit; a technical failure does not (pending decision). */
+/** Rejected and timeout use an attempt; a technical failure does not unless the rule flag says so. */
 export function nafathResult(s: ProposedState, result: NafathResult): ProposedState {
   const n = s.app.nafath;
   if (result === 'verified') {
-    const personId = s.app.entry.type === 'CR' ? s.app.persons.selectedId : 'self';
-    return persist(withApp(s, {
-      nafath: { ...n, status: 'verified', lastResult: result, verifiedPersonId: personId },
-      flags: dropFlags(s.app.flags, ['NAFATH_UNVERIFIED'])
-    }));
+    let app = store(s.app, makeRecord('NAFATH', nafathFingerprint(s.app), 'verified', now(), providerRef('NFT', n.requests)));
+    app = { ...app, nafath: { ...n, status: 'verified', lastResult: result, verifiedFor: nafathSubject(s.app) }, flags: dropFlags(app.flags, ['NAFATH_UNVERIFIED']) };
+    return persist({ ...s, app });
   }
-  const failures = result === 'technical' ? n.failures : n.failures + 1;
+  const counts = result !== 'technical' || RULE_FLAGS.nafathTechnicalFailureCounts;
+  const failures = counts ? n.failures + 1 : n.failures;
   const exhausted = failures >= LIMITS.nafathAttempts;
   return persist(withApp(s, {
     nafath: { ...n, status: exhausted ? 'exhausted' : 'failed', failures, lastResult: result },
@@ -285,210 +493,371 @@ export function nafathResult(s: ProposedState, result: NafathResult): ProposedSt
   }));
 }
 
-/** The answer the simulated Nafath app will give to the current request. */
+/** The answer the simulated Nafath app gives to the current request. */
 export const nextNafathAnswer = (s: ProposedState) => nafathAdapter(s.sim, s.app.nafath.requests - 1);
 
 export function continueAfterNafath(s: ProposedState): ProposedState {
-  const fl = s.app.entry.type === 'FL';
-  if (s.app.editing === 'review' && s.app.nafath.status === 'verified') return persist(withApp(s, { step: 'review', editing: null }));
-  if (!fl) return persist(withApp(s, { step: 'business' }));
-  if (s.app.nafath.status === 'verified') return persist(withApp(s, { step: 'certificates' }));
-  // Freelancer, Nafath failed twice: manual route.
-  return persist(withApp(s, { step: 'manual-certificate', flags: addFlag(s.app.flags, 'NAFATH_UNVERIFIED') }));
+  const n = s.app.nafath;
+  if (s.app.returnTo && n.status === 'verified') return go(s, s.app.returnTo, { returnTo: null });
+  if (s.app.kyb.kind === 'CR') return go(s, 'business');
+  if (n.status === 'verified') return go(s, 'certificates');
+  // Freelancer, Nafath failed twice: certificates cannot be retrieved for an unverified identity.
+  return finish(withApp(s, { flags: addFlag(s.app.flags, 'NAFATH_UNVERIFIED') }), 'MANUAL_VERIFICATION', 'SUBMITTED_MANUAL_VERIFICATION');
 }
 
 /* ------------------------------------------------------------------ Freelancer certificates */
 
+const certsFingerprint = (app: Application) => `certs:${app.identity.identifier}`;
+
 export function loadCertificates(s: ProposedState): ProposedState {
+  const fp = certsFingerprint(s.app);
+  if (reusable(s.app, 'FL_CERTS', fp) && s.app.certs.status === 'loaded') {
+    return persist(mapApp(s, (a) => log(a, { kind: 'reuse', check: 'FL_CERTS', note: 'Stored certificates reused — no new retrieval' })));
+  }
   const tries = s.app.certs.tries + 1;
+  let app = log(s.app, { kind: 'call', check: 'FL_CERTS', note: `Freelancer Certificate retrieval (attempt ${tries})` });
   const r = s.sim.certificates;
-  if (r === 'unavailable') return withApp(s, { certs: { ...s.app.certs, status: 'unavailable', tries } });
-  if (r === 'none') return persist(withApp(s, { certs: { ...s.app.certs, status: 'none', tries, list: [] } }));
-  const list = certificatesAdapter(r);
+  if (r === 'unavailable') return persist({ ...s, app: { ...app, certs: { ...app.certs, status: 'unavailable', tries } } });
+  if (r === 'none') {
+    app = store(app, makeRecord('FL_CERTS', fp, 'no active certificate', now(), providerRef('FLC', tries)));
+    // No document upload fallback: the applicant becomes a "certificate required" lead.
+    return finish({ ...s, app: { ...app, certs: { ...app.certs, status: 'none', tries, list: [] } } }, 'FL_CERT_REQUIRED', 'LEAD_FL_CERT_NOT_FOUND', 'FL_CERT_REQUIRED');
+  }
+  const list = certificatesAdapter(r, app.kyb.sub);
   const selectable = list.filter((c) => c.status === 'active' && c.issue !== 'duplicate');
-  return persist(withApp(s, { certs: { ...s.app.certs, status: 'loaded', tries, list, selectedId: selectable.length === 1 ? selectable[0].id : null } }));
+  app = store(app, makeRecord('FL_CERTS', fp, `${list.length} certificate(s), ${selectable.length} selectable`, now(), providerRef('FLC', tries)));
+  return persist({ ...s, app: { ...app, certs: { ...app.certs, status: 'loaded', tries, list, selectedId: app.certs.selectedId ?? (selectable.length === 1 ? selectable[0].id : null) } } });
 }
 
-export const selectCertificate = (s: ProposedState, id: string): ProposedState => withApp(s, { certs: { ...s.app.certs, selectedId: id } });
+export function selectCertificate(s: ProposedState, id: string): ProposedState {
+  if (s.app.certs.selectedId === id) return s;
+  let app: Application = { ...s.app, certs: { ...s.app.certs, selectedId: id }, activity: null };
+  if (app.business.ibanStatus === 'verified') {
+    app = invalidate(app, ['IBAN'], 'Freelance certificate changed');
+    app = { ...app, business: { ...app.business, ibanStatus: 'idle', bankName: '' } };
+  }
+  return { ...s, app };
+}
 
-/**
- * Associate the selected certificate: duplicate check, category reconciliation and re-evaluation of
- * the restriction for the certificate's activity.
- */
 export function confirmCertificate(s: ProposedState): ProposedState {
   const cert = s.app.certs.list.find((c) => c.id === s.app.certs.selectedId);
   if (!cert || cert.status !== 'active' || cert.issue === 'duplicate') return s;
-  let flags = dropFlags(s.app.flags, ['CERTIFICATE_INCONSISTENT', 'CERTIFICATE_CATEGORY_MISMATCH', 'CERTIFICATE_MANUAL']);
+  let flags = dropFlags(s.app.flags, ['CERTIFICATE_INCONSISTENT']);
   if (cert.issue === 'inconsistent') flags = addFlag(flags, 'CERTIFICATE_INCONSISTENT');
-  if (cert.madfuSub !== s.app.category.sub) {
-    flags = addFlag(flags, 'CERTIFICATE_CATEGORY_MISMATCH');
-    const cls = classificationOf(cert.madfuSub);
-    if (cls === 'BLOCKED') return finish(withApp(s, { flags }), 'CATEGORY_REVIEW', 'CATEGORY_BLOCKED');
-    if (cls === 'MANUAL_REVIEW') flags = addFlag(flags, 'CATEGORY_MANUAL_REVIEW');
+  const next = applyReconciliation(withApp(s, { flags }), 'CERTIFICATE', cert.activity);
+  if (next.app.step === 'outcome' || activityPending(next.app)) return next;
+  return go(next, next.app.returnTo ?? 'business', { returnTo: null });
+}
+
+export function continueFromCertificates(s: ProposedState): ProposedState {
+  if (activityPending(s.app) || !s.app.activity) return s;
+  return go(s, s.app.returnTo ?? 'business', { returnTo: null });
+}
+
+/* ------------------------------------------------------------------ Stage 4: Business & Banking */
+
+export const setBusiness = (s: ProposedState, patch: Partial<Application['business']>) => withApp(s, { business: { ...s.app.business, ...patch } });
+
+/** IBAN ownership target: the business (CR), or the individual + certificate (Freelancer). */
+export const ibanTarget = (app: Application) => (app.kyb.kind === 'CR' ? `cr:${app.identity.identifier}` : `nid:${app.identity.identifier}:${app.certs.selectedId ?? ''}`);
+const ibanFingerprint = (app: Application) => `iban:${app.business.iban}:${ibanTarget(app)}`;
+
+/** Freelancer: is the bank account linked to the certificate? "No" skips IBAN; banking set-up later. */
+export function setBankLinked(s: ProposedState, v: 'yes' | 'no'): ProposedState {
+  if (s.app.business.bankLinked === v) return s;
+  let app = s.app;
+  if (app.verifications.IBAN?.status === 'valid') app = invalidate(app, ['IBAN'], 'Bank-linked answer changed');
+  const b = app.business;
+  if (v === 'no') {
+    return { ...s, app: { ...app, business: { ...b, bankLinked: 'no', ibanStatus: 'skipped', bankName: '' }, flags: addFlag(dropFlags(app.flags, ['IBAN_UNVERIFIED']), 'BANKING_SETUP_REQUIRED') } };
   }
-  const step: StepId = s.app.editing === 'review' ? 'review' : 'business';
-  return persist(withApp(s, { flags, step, editing: null }));
+  return { ...s, app: { ...app, business: { ...b, bankLinked: 'yes', ibanStatus: 'idle', bankName: '' }, flags: dropFlags(app.flags, ['BANKING_SETUP_REQUIRED']) } };
 }
 
-/** No certificate found, provider unavailable, or Nafath failed: the applicant types the number. */
-export function submitManualCertificate(s: ProposedState): ProposedState {
-  const flags = addFlag(s.app.flags, 'CERTIFICATE_MANUAL');
-  return persist(withApp(s, { flags, step: s.app.editing === 'review' ? 'review' : 'business', editing: null }));
+/** Editing the IBAN invalidates only the IBAN verification. The attempt counter belongs to the application. */
+export function setIban(s: ProposedState, iban: string): ProposedState {
+  const b = s.app.business;
+  if (iban === b.iban) return s;
+  let app = s.app;
+  if (app.verifications.IBAN?.status === 'valid') app = invalidate(app, ['IBAN'], 'IBAN changed');
+  return { ...s, app: { ...app, business: { ...b, iban, ibanStatus: b.ibanFailures >= LIMITS.ibanAttempts ? 'unverified' : 'idle', bankName: '' }, flags: b.ibanFailures >= LIMITS.ibanAttempts ? app.flags : dropFlags(app.flags, ['IBAN_UNVERIFIED']) } };
 }
 
-export const isFlCertificateNumber = (v: string) => /^\d{9}$/.test(v);
-
-/* ------------------------------------------------------------------ bank ownership (IBAN) */
-
-/** Freelancer on the manual route: IBAN collected without an ownership check. */
-export const ibanCheckApplies = (app: Application) => !(app.entry.type === 'FL' && app.nafath.status !== 'verified');
-
+/** Same IBAN and same owner as a stored success: reused. Otherwise a new ownership check starts. */
 export function startIbanCheck(s: ProposedState): ProposedState {
-  if (!ibanCheckApplies(s.app)) {
-    return withApp(s, { business: { ...s.app.business, ibanStatus: 'not_checked', bankName: bankFromIban(s.app.business.iban) }, flags: addFlag(s.app.flags, 'IBAN_NOT_CHECKED') });
+  if (reusable(s.app, 'IBAN', ibanFingerprint(s.app))) {
+    const app = log(s.app, { kind: 'reuse', check: 'IBAN', note: 'Same IBAN verified previously — reused, no new check' });
+    return persist({ ...s, app: { ...app, business: { ...app.business, ibanStatus: 'verified', bankName: bankFromIban(app.business.iban) } } });
   }
-  return withApp(s, { business: { ...s.app.business, ibanStatus: 'verifying' } });
+  return setBusiness(s, { ibanStatus: 'verifying' });
 }
 
 export function finishIbanCheck(s: ProposedState): ProposedState {
   const b = s.app.business;
-  const checkIndex = b.ibanFailures; // each failure moves to the next scripted answer
-  const result = ibanAdapter(s.sim, checkIndex);
+  const result = ibanAdapter(s.sim, b.ibanFailures);
+  let app = log(s.app, { kind: 'call', check: 'IBAN', note: `IBAN ownership check (${s.app.kyb.kind === 'CR' ? 'against the business' : 'against the individual + certificate'})` });
   if (result === 'verified') {
-    return persist(withApp(s, { business: { ...b, ibanStatus: 'verified', ibanLast: result, bankName: bankFromIban(b.iban) }, flags: dropFlags(s.app.flags, ['IBAN_UNVERIFIED']) }));
+    app = store(app, makeRecord('IBAN', ibanFingerprint(app), 'owner matched', now(), providerRef('IBN', b.ibanFailures + 1)));
+    return persist({ ...s, app: { ...app, business: { ...b, ibanStatus: 'verified', ibanLast: result, bankName: bankFromIban(b.iban) }, flags: dropFlags(app.flags, ['IBAN_UNVERIFIED']) } });
   }
   const ibanFailures = b.ibanFailures + 1;
   const done = ibanFailures >= LIMITS.ibanAttempts;
-  return persist(withApp(s, {
-    business: { ...b, ibanStatus: done ? 'unverified' : 'failed', ibanFailures, ibanLast: result, bankName: '' },
-    flags: done ? addFlag(s.app.flags, 'IBAN_UNVERIFIED') : s.app.flags
-  }));
+  return persist({ ...s, app: { ...app, business: { ...b, ibanStatus: done ? 'unverified' : 'failed', ibanFailures, ibanLast: result, bankName: '' }, flags: done ? addFlag(app.flags, 'IBAN_UNVERIFIED') : app.flags } });
 }
 
-/** Editing the IBAN invalidates the previous verification. The attempt counter belongs to the application. */
-export function setIban(s: ProposedState, iban: string): ProposedState {
-  const b = s.app.business;
-  const unchanged = iban === b.iban;
-  return withApp(s, {
-    business: { ...b, iban, ibanStatus: unchanged ? b.ibanStatus : b.ibanFailures >= LIMITS.ibanAttempts ? 'unverified' : 'idle', bankName: unchanged ? b.bankName : '' },
-    flags: unchanged ? s.app.flags : dropFlags(s.app.flags, ['IBAN_NOT_CHECKED'])
-  });
+export const ibanSettled = (app: Application) => ['verified', 'unverified', 'skipped'].includes(app.business.ibanStatus);
+export const bankingComplete = (app: Application) => {
+  const b = app.business;
+  if (fl(app) && !b.bankLinked) return false;
+  if (!ibanSettled(app)) return false;
+  if (!b.vat) return false;
+  return true;
+};
+
+export const submitBusiness = (s: ProposedState): ProposedState => go(s, s.app.returnTo ?? 'commercial', { returnTo: null, editBaseline: null });
+
+/* ------------------------------------------------------------------ Stage 5: Commercial Offer */
+
+export function toggleOptionalPlan(s: ProposedState, t: Tenure): ProposedState {
+  const cur = s.app.commercial.optional;
+  return withApp(s, { commercial: { ...s.app.commercial, optional: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t].sort((a, b) => a - b) } });
+}
+export const addEvidence = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, evidence: s.app.commercial.evidence.includes(id) ? s.app.commercial.evidence : [...s.app.commercial.evidence, id], evidenceSkipped: false } });
+export const removeEvidence = (s: ProposedState, id: string) => withApp(s, { commercial: { ...s.app.commercial, evidence: s.app.commercial.evidence.filter((x) => x !== id) } });
+
+/** Confirm the offer: standard commission, base plans + selected optional plans. Never waits for pricing review. */
+export function confirmOffer(s: ProposedState): ProposedState {
+  const c = s.app.commercial;
+  const agreed = buildOffer(s.app.kyb.sub, c.optional);
+  const flags = c.evidence.length ? addFlag(s.app.flags, 'COMMERCIAL_PRICING_REVIEW') : dropFlags(s.app.flags, ['COMMERCIAL_PRICING_REVIEW']);
+  return go(s, s.app.returnTo ?? 'review', { commercial: { ...c, agreed, evidenceSkipped: c.evidence.length === 0 }, flags, returnTo: null, editBaseline: null });
 }
 
-export const ibanSettled = (app: Application) => ['verified', 'unverified', 'not_checked'].includes(app.business.ibanStatus);
+/* ------------------------------------------------------------------ Stage 6: Review and Edit */
 
-export function submitBusiness(s: ProposedState): ProposedState {
-  return persist(withApp(s, { step: 'review', editing: null }));
-}
-
-/* ------------------------------------------------------------------ review, edit, contract, submit */
-
-export type SectionId = 'applicant' | 'category' | 'verification' | 'certificate' | 'bank' | 'tax' | 'channels';
-
-export function startEdit(s: ProposedState, section: SectionId): ProposedState {
-  const editBaseline = { type: s.app.entry.type, identifier: s.app.entry.identifier };
-  const fl = s.app.entry.type === 'FL';
+export function startEdit(s: ProposedState, section: SectionId, returnTo: StepId = 'review'): ProposedState {
+  const a = s.app;
+  const editBaseline = { kyb: a.kyb, identity: a.identity, business: a.business, commercial: a.commercial };
   const step: StepId =
-    section === 'applicant' ? 'entry'
-      : section === 'category' ? 'category'
-        : section === 'verification' ? (fl ? 'nafath' : 'persons')
-          : section === 'certificate' ? (s.app.certs.manualNumber ? 'manual-certificate' : 'certificates')
-            : 'business';
-  return withApp(s, { step, editing: 'review', editBaseline });
+    section === 'kyb' ? 'kyb'
+      : section === 'identification' ? 'identify'
+        : section === 'verified' ? (a.kyb.kind === 'CR' ? 'persons' : 'certificates')
+          : section === 'banking' ? 'business'
+            : 'commercial';
+  return withApp(s, { step, returnTo, editBaseline });
 }
 
-export const cancelEdit = (s: ProposedState): ProposedState => withApp(s, { step: 'review', editing: null });
-
-/** Nafath success is the contract gate. IBAN failure after retries does not block a verified applicant. */
-export function contractEligible(app: Application): boolean {
-  if (app.nafath.status !== 'verified') return false;
-  if (app.entry.type === 'CR') return crCanContinue(app) && app.persons.status === 'loaded';
-  const cert = app.certs.list.find((c) => c.id === app.certs.selectedId);
-  return !!cert && cert.status === 'active' && !app.flags.includes('CERTIFICATE_MANUAL');
+/** Cancel restores the values the edit started with. Verifications are untouched. */
+export function cancelEdit(s: ProposedState): ProposedState {
+  const b = s.app.editBaseline;
+  const restored = b ? { kyb: b.kyb, identity: b.identity, business: b.business, commercial: b.commercial } : {};
+  return withApp(s, { ...restored, step: s.app.returnTo ?? 'review', returnTo: null, editBaseline: null });
 }
+
+function returnFromEdit(s: ProposedState): ProposedState {
+  return go(s, s.app.returnTo ?? 'review', { returnTo: null, editBaseline: null });
+}
+
+/** Saving Identification edited from Review: invalidate exactly what depends on what changed. */
+function saveIdentityEdit(s: ProposedState): ProposedState {
+  const base = s.app.editBaseline?.identity;
+  if (!base) return returnFromEdit(s);
+  const idChanged = base.identifier !== s.app.identity.identifier;
+  const mobileChanged = base.mobile !== s.app.identity.mobile;
+  let next = s;
+  if (idChanged) {
+    const check = identityCheck(next);
+    if (check !== 'new') return withApp(next, { identityCheck: check });
+    let app = next.app;
+    const deps: VerificationType[] = app.kyb.kind === 'CR' ? ['CR_DATA', 'PERSONS', 'NAFATH', 'IBAN'] : ['NAFATH', 'FL_CERTS', 'IBAN'];
+    app = invalidate(app, deps, app.kyb.kind === 'CR' ? 'CR number changed' : 'National ID changed');
+    app = {
+      ...app,
+      identityCheck: 'new',
+      cr: { status: 'idle', tries: 0, record: null, decision: null, decisionReason: null },
+      activity: null,
+      persons: { status: 'idle', tries: 0, list: [], selectedId: null },
+      // The Nafath attempt counter belongs to the application and is not reset.
+      nafath: { ...app.nafath, status: app.nafath.status === 'exhausted' ? 'exhausted' : 'idle', verifiedFor: null, lastResult: null },
+      certs: { status: 'idle', tries: 0, list: [], selectedId: null },
+      business: { ...app.business, ibanStatus: app.business.ibanStatus === 'skipped' ? 'skipped' : 'idle', bankName: '' },
+      contract: { status: 'unavailable', acceptedAt: '' },
+      flags: dropFlags(app.flags, ['ADDITIONAL_DOCUMENTS_REQUIRED', 'NATIONAL_ADDRESS_MISSING', 'NATIONAL_ADDRESS_EXPIRED', 'ACTIVITY_AMBIGUOUS', 'ACTIVITY_UNMAPPED', 'ACTIVITY_CONFLICT_REVIEW', 'NO_ELIGIBLE_PERSON', 'IBAN_UNVERIFIED', 'CERTIFICATE_INCONSISTENT'])
+    };
+    const identities = { ...next.backend.identities };
+    delete identities[base.identifier];
+    next = { ...next, app, backend: { ...next.backend, identities } };
+  }
+  if (mobileChanged) {
+    // The new mobile must be verified; then the edit returns to Review (or continues below).
+    const after = idChanged ? withApp(next, { returnTo: firstIncomplete(next.app) }) : next;
+    return sendOtp(after, 'mobile-change', s.app.identity.mobile);
+  }
+  if (idChanged) return go(next, firstIncomplete(next.app), { returnTo: null, editBaseline: null });
+  return returnFromEdit(next);
+}
+
+/* ------------------------------------------------------------------ contract gate */
+
+/** Why the contract is not available (empty = available). Configurable gates, no screen logic. */
+export function contractBlockers(app: Application): string[] {
+  const out: string[] = [];
+  if (app.nafath.status !== 'verified') out.push('Nafath not verified');
+  if (app.kyb.kind === 'CR' && !(app.persons.status === 'loaded' && app.persons.selectedId)) out.push('No verified authorised person');
+  if (app.flags.includes('ACTIVITY_CONFLICT_REVIEW')) out.push('Activity conflict to be confirmed by the team');
+  if (fl(app)) {
+    const cert = app.certs.list.find((c) => c.id === app.certs.selectedId);
+    if (!cert || cert.status !== 'active') out.push('No selected certificate');
+    if (RULE_FLAGS.flLinkedIbanRequiredBeforeContract && app.business.bankLinked !== 'yes') out.push('Bank account not linked to the certificate (compliance rule flag)');
+  }
+  return out;
+}
+export const contractEligible = (app: Application) => contractBlockers(app).length === 0;
 
 export interface Issue { section: SectionId; message: string }
 
 export function reviewIssues(app: Application): Issue[] {
   const out: Issue[] = [];
   const b = app.business;
-  if (!app.category.sub) out.push({ section: 'category', message: 'Choose a business category.' });
-  if (!b.iban) out.push({ section: 'bank', message: 'Add the IBAN for settlements.' });
-  else if (!ibanSettled(app)) out.push({ section: 'bank', message: 'Finish verifying the IBAN.' });
-  if (!b.vat) out.push({ section: 'tax', message: 'Answer whether you are VAT registered.' });
-  if (!b.channel) out.push({ section: 'channels', message: 'Choose how you sell.' });
-  if (app.entry.type === 'FL' && !app.certs.selectedId && !app.certs.manualNumber) out.push({ section: 'certificate', message: 'Select a freelance certificate.' });
+  if (fl(app) && !b.bankLinked) out.push({ section: 'banking', message: 'Tell us whether your bank account is linked to your certificate.' });
+  else if (b.bankLinked !== 'no' && !b.iban) out.push({ section: 'banking', message: 'Add the IBAN for settlements.' });
+  else if (!ibanSettled(app)) out.push({ section: 'banking', message: 'Finish verifying the IBAN.' });
+  if (!b.vat) out.push({ section: 'banking', message: 'Answer whether you are VAT registered.' });
+  if (!app.commercial.agreed) out.push({ section: 'commercial', message: 'Confirm your commercial offer.' });
+  if (fl(app) && !app.certs.selectedId) out.push({ section: 'verified', message: 'Select a freelance certificate.' });
   return out;
 }
 
 export function continueFromReview(s: ProposedState): ProposedState {
   if (reviewIssues(s.app).length) return s;
-  if (contractEligible(s.app)) return persist(withApp(s, { step: 'contract', contract: { status: s.app.contract.status === 'accepted' ? 'accepted' : 'ready', acceptedAt: s.app.contract.acceptedAt } }));
+  if (contractEligible(s.app)) {
+    return go(s, 'contract', { contract: { status: s.app.contract.status === 'accepted' ? 'accepted' : 'ready', acceptedAt: s.app.contract.acceptedAt } });
+  }
+  const blockers = contractBlockers(s.app);
+  const onlyBanking = blockers.length === 1 && blockers[0].startsWith('Bank account not linked');
+  if (onlyBanking) return finish(withApp(s, { contract: { status: 'unavailable', acceptedAt: '' } }), 'SUBMITTED_BANKING_PENDING', 'SUBMITTED_BANKING_PENDING');
   return finish(withApp(s, { contract: { status: 'unavailable', acceptedAt: '' } }), 'MANUAL_VERIFICATION', 'SUBMITTED_MANUAL_VERIFICATION');
 }
 
-export const acceptContract = (s: ProposedState): ProposedState =>
-  withApp(s, { contract: { status: 'accepted', acceptedAt: new Date().toISOString() } });
+/* ------------------------------------------------------------------ Stage 7 / 8: Contract, Submit */
 
-export const submitApplication = (s: ProposedState): ProposedState =>
-  s.app.contract.status === 'accepted' ? finish(s, 'SUBMITTED', 'SUBMITTED') : s;
+export const acceptContract = (s: ProposedState): ProposedState => persist(withApp(s, { contract: { status: 'accepted', acceptedAt: now() } }));
+
+export function submitApplication(s: ProposedState): ProposedState {
+  if (s.app.contract.status !== 'accepted') return s;
+  if (fl(s.app) && s.app.business.bankLinked === 'no') return finish(s, 'SUBMITTED_BANKING_PENDING', 'SUBMITTED_BANKING_PENDING');
+  return finish(s, 'SUBMITTED', 'SUBMITTED');
+}
 
 export const declineContract = (s: ProposedState): ProposedState =>
   finish(withApp(s, { contract: { status: 'declined', acceptedAt: '' } }), 'CONTRACT_DECLINED', 'CONTRACT_DECLINED');
 
-/** First step that still needs input, used after an edit that invalidated verifications. */
+/** After a decline (or a resume after one), the contract opens again. */
+export const reopenContract = (s: ProposedState): ProposedState =>
+  go(s, 'contract', { outcome: null, outcomeReason: null, status: 'DRAFT', contract: { status: 'ready', acceptedAt: '' } });
+
+/* ------------------------------------------------------------------ resume target */
+
+/** First screen that still needs input. Used after OTP on resume and after invalidating edits. */
 export function firstIncomplete(app: Application): StepId {
-  if (!app.category.sub) return 'category';
-  if (app.entry.type === 'CR') {
+  if (!app.id) return app.eligibility ? 'identify' : 'kyb';
+  if (app.contract.status === 'declined') return 'contract';
+  if (app.kyb.kind === 'CR') {
     if (!crCanContinue(app)) return 'cr-verify';
-    if (app.persons.status === 'idle' || (app.persons.status === 'loaded' && !app.persons.selectedId)) return 'persons';
+    if (app.persons.status === 'idle' || app.persons.status === 'unavailable' || (app.persons.status === 'loaded' && !app.persons.selectedId)) return 'persons';
     if (app.persons.status === 'loaded' && app.nafath.status !== 'verified' && app.nafath.status !== 'exhausted') return 'nafath';
   } else {
-    if (app.nafath.status !== 'verified' && app.nafath.status !== 'exhausted') return 'nafath';
-    if (app.nafath.status === 'verified' && !app.certs.selectedId && !app.certs.manualNumber) return 'certificates';
-    if (app.nafath.status === 'exhausted' && !app.certs.manualNumber) return 'manual-certificate';
+    if (app.nafath.status !== 'verified') return 'nafath';
+    if (app.certs.status !== 'loaded' || !app.certs.selectedId || !app.activity || activityPending(app)) return 'certificates';
   }
-  if (!ibanSettled(app) || !app.business.vat || !app.business.channel) return 'business';
+  if (!bankingComplete(app)) return 'business';
+  if (!app.commercial.agreed) return 'commercial';
+  if (app.lastStep === 'contract' && contractEligible(app)) return 'contract';
   return 'review';
 }
 
-/* ------------------------------------------------------------------ prefilled applications (scenarios, PDF) */
+/** The next operation that would create a NEW external call (Internal View). */
+export function nextPaidCall(s: ProposedState): string {
+  const { app } = s;
+  if (app.step === 'otp' && app.otp.status !== 'verified') return 'None — the SMS code was already sent';
+  if (!app.id) return app.step === 'identify' || app.step === 'lead' ? 'SMS OTP when the form is submitted' : 'None — Stage 1 is internal (no provider call)';
+  const step = app.step;
+  if (step === 'cr-verify' && !reusable(app, 'CR_DATA', crFingerprint(app))) return 'CR data retrieval';
+  if (step === 'persons' && !reusable(app, 'PERSONS', personsFingerprint(app))) return 'Associated people retrieval';
+  if (step === 'nafath' && app.nafath.status !== 'verified') return app.nafath.status === 'exhausted' ? 'None — Nafath attempts used' : 'Nafath request';
+  if (step === 'certificates' && !reusable(app, 'FL_CERTS', certsFingerprint(app))) return 'Freelancer Certificate retrieval';
+  if (step === 'business' && app.business.bankLinked !== 'no' && app.business.ibanStatus !== 'verified' && app.business.ibanStatus !== 'unverified') return 'IBAN ownership check';
+  return 'None — the next screen needs no provider call';
+}
+
+/* ------------------------------------------------------------------ prefilled applications (scenarios, PDF, boards) */
+
+type PrefillKind = 'CR' | 'FL_CERT';
 
 /**
- * A healthy self-service application filled up to (not including) `upTo`.
- * Used by scenarios, the resume fixture and the wireframe PDF.
+ * A healthy self-service application filled up to (not including) `upTo`, with the verification
+ * records and ledger entries the earlier steps would have produced. Used by scenarios and the PDF.
  */
-export function prefill(type: 'CR' | 'FL', upTo: StepId, sim: Sim = initialSim(), from?: Application): Application {
-  const order: StepId[] = ['entry', 'otp', 'category', 'cr-verify', 'persons', 'nafath', 'certificates', 'business', 'review', 'contract', 'outcome'];
+export function prefill(kind: PrefillKind, upTo: StepId, sim: Sim = initialSim()): Application {
+  const order: StepId[] = ['kyb', 'identify', 'otp', 'cr-verify', 'persons', 'nafath', 'certificates', 'business', 'commercial', 'review', 'contract', 'outcome'];
   const reach = (step: StepId) => order.indexOf(upTo) > order.indexOf(step);
-  const fl = type === 'FL';
-  let app = from ?? initialApplication(1_760_000_000_000);
-  app = {
-    ...app,
-    step: upTo,
-    entry: { type, identifier: fl ? ['1', '000000', '201'].join('') : '7000000101', revenue: 'SELF_SERVICE_BAND', mobile: ['5', '0000', '0012'].join('') }
-  };
-  if (reach('otp')) app = { ...app, verifiedMobile: app.entry.mobile, otp: { ...app.otp, status: 'verified' }, identityCheck: 'new' };
-  if (reach('category')) app = { ...app, category: fl ? { group: 'services', sub: 'services-design' } : { group: 'food', sub: 'food-cafe' } };
-  if (!fl && reach('cr-verify')) app = { ...app, cr: { status: 'valid', tries: 1, record: crAdapter('valid').record } };
-  if (!fl && reach('persons')) {
-    const list = personsAdapter(sim.persons === 'one' ? 'one' : 'multiple');
-    app = { ...app, persons: { status: 'loaded', tries: 1, list, selectedId: 'p1' } };
-  }
-  if (reach('nafath')) app = { ...app, nafath: { ...app.nafath, status: 'verified', requests: 1, verifiedPersonId: fl ? 'self' : 'p1' } };
-  if (fl && reach('certificates')) app = { ...app, certs: { status: 'loaded', tries: 1, list: certificatesAdapter('one'), selectedId: 'fl1', manualNumber: '' } };
-  if (reach('business')) {
-    const iban = ['SA', '00', fl ? '80' : '10', '000000', '12345678', '4821'].join('');
+  const isFl = kind === 'FL_CERT';
+  const at = '2026-10-23T08:00:00.000Z';
+  let app = initialApplication(1_760_000_000_000);
+  const sub = isFl ? 'services-design' : 'food-cafe';
+  const kyb = isFl
+    ? { kind, group: 'services', sub, revenue: 'SELF_SERVICE_BAND' as const, channel: 'online' as const, websiteUrl: 'https://studio.example.com', mapsUrl: '' }
+    : { kind, group: 'food', sub, revenue: 'SELF_SERVICE_BAND' as const, channel: 'both' as const, websiteUrl: 'https://najdroastery.example.com', mapsUrl: 'https://maps.google.com/?q=24.7136,46.6753' };
+  app = { ...app, step: upTo, lastStep: upTo, kyb };
+  if (reach('kyb')) app = { ...app, eligibility: evaluateEligibility({ kind, sub, revenue: kyb.revenue, channel: kyb.channel }, at) };
+  if (reach('identify')) app = { ...app, identity: { identifier: isFl ? DEMO.nationalId : DEMO.cr, mobile: DEMO.mobile }, identityCheck: 'new' };
+  if (reach('otp')) {
+    app = log(app, { kind: 'otp', check: 'OTP', note: 'SMS code sent (application)' }, at);
     app = {
-      ...app,
-      business: { ...app.business, iban, ibanStatus: 'verified', bankName: bankFromIban(iban), vat: 'no', channel: 'online', websiteUrl: fl ? 'https://studio.example.com' : 'https://najdroastery.example.com' }
+      ...app, id: newApplicationId(1_760_000_000_000), status: 'DRAFT', verifiedMobile: DEMO.mobile, sessionMobile: DEMO.mobile,
+      otp: { ...app.otp, status: 'verified' },
+      kybSnapshot: { ...kyb, qualificationId: app.qualificationId, eligibility: app.eligibility!, linkedAt: at }
     };
   }
+  if (!isFl && reach('cr-verify')) {
+    const rec = crAdapter(sim, sub)!;
+    app = log(app, { kind: 'call', check: 'CR_DATA', note: 'CR data retrieval (attempt 1)' }, at);
+    app = store(app, makeRecord('CR_DATA', `cr:${DEMO.cr}`, `${rec.status}, ${rec.issuedMonthsAgo} months, address ${rec.nationalAddress.toLowerCase()}`, at, providerRef('CR', 1)));
+    const rc = reconcile('CR', sub, rec.activity);
+    app = { ...app, cr: { status: 'loaded', tries: 1, record: rec, decision: 'continue', decisionReason: 'OK' }, activity: { source: 'CR', activity: rec.activity, declaredSub: sub, outcome: rc.outcome, action: rc.action, acknowledged: false } };
+  }
+  if (!isFl && reach('persons')) {
+    const list = personsAdapter(sim.persons === 'one' ? 'one' : 'multiple');
+    app = log(app, { kind: 'call', check: 'PERSONS', note: 'Associated people retrieval (attempt 1)' }, at);
+    app = store(app, makeRecord('PERSONS', `persons:${DEMO.cr}`, `${eligiblePersons(list).length} eligible individual(s)`, at, providerRef('PPL', 1)));
+    app = { ...app, persons: { status: 'loaded', tries: 1, list, selectedId: 'p1' } };
+  }
+  if (reach('nafath')) {
+    const subject = isFl ? DEMO.nationalId : 'p1';
+    app = log(app, { kind: 'call', check: 'NAFATH', note: 'Nafath request 1' }, at);
+    app = store(app, makeRecord('NAFATH', `nafath:${app.id}:${subject}`, 'verified', at, providerRef('NFT', 1)));
+    app = { ...app, nafath: { ...app.nafath, status: 'verified', requests: 1, lastResult: 'verified', verifiedFor: subject } };
+  }
+  if (isFl && reach('certificates')) {
+    const list = certificatesAdapter('one', sub);
+    app = log(app, { kind: 'call', check: 'FL_CERTS', note: 'Freelancer Certificate retrieval (attempt 1)' }, at);
+    app = store(app, makeRecord('FL_CERTS', `certs:${DEMO.nationalId}`, '1 certificate(s), 1 selectable', at, providerRef('FLC', 1)));
+    const rc = reconcile(kind, sub, list[0].activity);
+    app = { ...app, certs: { status: 'loaded', tries: 1, list, selectedId: list[0].id }, activity: { source: 'CERTIFICATE', activity: list[0].activity, declaredSub: sub, outcome: rc.outcome, action: rc.action, acknowledged: false } };
+  }
+  if (reach('business')) {
+    const iban = demoIban(isFl ? '80' : '10', '4821');
+    app = { ...app, business: { ...app.business, bankLinked: isFl ? 'yes' : null, iban, vat: 'no', branches: isFl ? '' : '2' } };
+    app = log(app, { kind: 'call', check: 'IBAN', note: 'IBAN ownership check' }, at);
+    app = store(app, makeRecord('IBAN', `iban:${iban}:${ibanTarget(app)}`, 'owner matched', at, providerRef('IBN', 1)));
+    app = { ...app, business: { ...app.business, ibanStatus: 'verified', ibanLast: 'verified', bankName: bankFromIban(iban) } };
+  }
+  if (reach('commercial')) app = { ...app, commercial: { optional: [6], evidence: [], evidenceSkipped: true, agreed: buildOffer(sub, [6], at) } };
   if (reach('review') && contractEligible(app)) app = { ...app, contract: { status: 'ready', acceptedAt: '' } };
   return app;
 }
 
-export function categoryLabel(app: Application): string {
-  const f = findSub(app.category.sub);
-  return f ? `${f.group.label} › ${f.sub.label}` : '';
+/** A state whose backend holds `app` (saved), so resume and duplicate detection see it. */
+export function withSaved(app: Application, sim: Sim = initialSim(), scenarioId: string | null = null): ProposedState {
+  return persist({ app, sim, scenarioId, backend: initialBackend() });
 }

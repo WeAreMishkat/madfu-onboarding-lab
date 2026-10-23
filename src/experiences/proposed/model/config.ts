@@ -1,20 +1,32 @@
 /**
- * Configurable rules for Madfu Proposed. Everything a product decision may still change lives here.
+ * Configurable rules for Madfu Proposed that are not tables of their own (eligibility, government,
+ * activity mapping, pricing and verification reuse live in their own modules). Anything a product or
+ * compliance decision may still change lives in configuration, never in a screen component.
  */
-import type { ApplicantType, Classification, Revenue } from './types';
+import type { ApplicantKind, Revenue } from './types';
 
-/* ------------------------------------------------------------------ revenue routing */
+/* ------------------------------------------------------------------ stages (one list for app, boards, docs) */
+
+export const STAGES = [
+  { id: 'kyb', n: 1, label: 'Know Your Business', short: 'Business', steps: ['kyb', 'lead'] },
+  { id: 'identify', n: 2, label: 'Identify & Verify', short: 'Identify', steps: ['identify', 'otp'] },
+  { id: 'verification', n: 3, label: 'Business Verification', short: 'Verify', steps: ['cr-verify', 'persons', 'nafath', 'certificates'] },
+  { id: 'banking', n: 4, label: 'Business & Banking Details', short: 'Details', steps: ['business'] },
+  { id: 'commercial', n: 5, label: 'Commercial Offer', short: 'Offer', steps: ['commercial'] },
+  { id: 'review', n: 6, label: 'Review', short: 'Review', steps: ['review'] },
+  { id: 'contract', n: 7, label: 'Contract', short: 'Contract', steps: ['contract'] },
+  { id: 'outcome', n: 8, label: 'Submit / Outcome', short: 'Submit', steps: ['outcome'] }
+] as const;
+
+export const stageOf = (step: string) => STAGES.find((s) => (s.steps as readonly string[]).includes(step)) ?? STAGES[0];
+
+/* ------------------------------------------------------------------ revenue */
 
 /**
- * PROVISIONAL: the exact SAR 100,000 boundary is still a product decision. Exactly SAR 100,000 is
- * treated as self-onboarding (it sits in the middle band), so the three labels have no gap and no
- * overlap. Change `selfServiceFromSar` / `selfServiceToSar` and the labels follow.
+ * PROVISIONAL: the exact treatment of SAR 100,000 and SAR 20,000,000 is a policy boundary to confirm.
+ * The prototype uses non-overlapping bands: below 100,000 / 100,000 to 20,000,000 / above 20,000,000.
  */
-export const REVENUE_RULE = {
-  selfServiceFromSar: 100_000,
-  selfServiceToSar: 20_000_000,
-  provisional: true
-};
+export const REVENUE_RULE = { selfServiceFromSar: 100_000, selfServiceToSar: 20_000_000, provisional: true };
 
 const sar = (n: number) => `SAR ${n.toLocaleString('en-US')}`;
 
@@ -25,10 +37,13 @@ export const REVENUE_OPTIONS: Array<{ value: Revenue; label: string }> = [
 ];
 export const revenueLabel = (r: Revenue | null) => REVENUE_OPTIONS.find((o) => o.value === r)?.label ?? '';
 
-/** CR outside the self-service band becomes a Sales lead; Freelancers self-onboard at every level. */
-export function isSelfService(type: ApplicantType, revenue: Revenue): boolean {
-  return type === 'FL' || revenue === 'SELF_SERVICE_BAND';
-}
+export const KIND_OPTIONS: Array<{ value: ApplicantKind; label: string; description: string }> = [
+  { value: 'CR', label: 'Registered business with a Commercial Registration (CR)', description: 'Company or establishment' },
+  { value: 'FL_CERT', label: 'Freelancer with a Freelancer Certificate', description: 'Individual with an active certificate' },
+  { value: 'FL_NO_CERT', label: 'Freelancer without a Freelancer Certificate', description: 'Individual, no certificate yet' }
+];
+export const kindLabel = (k: ApplicantKind | null) => KIND_OPTIONS.find((o) => o.value === k)?.label ?? '';
+export const isFreelancer = (k: ApplicantKind | null) => k === 'FL_CERT' || k === 'FL_NO_CERT';
 
 /* ------------------------------------------------------------------ attempts */
 
@@ -39,18 +54,30 @@ export const LIMITS = {
   /** Per APPLICATION, shared across selected people. */
   nafathAttempts: 2,
   ibanAttempts: 2,
-  /** Bounded retries for an unavailable provider before the manual route is offered. */
+  /** Bounded retries for an unavailable provider before "come back later". */
   providerRetries: 2
 };
 
-/* ------------------------------------------------------------------ validation (structural only) */
+/* ------------------------------------------------------------------ open decisions as rule flags */
 
-/** Structural check only: 10 digits starting with 7 (Unified / national CR). Not a registry check. */
+export const RULE_FLAGS = {
+  /**
+   * COMPLIANCE DECISION REQUIRED: can a Freelancer sign the contract before the IBAN is linked to the
+   * Freelancer Certificate? false = least disruptive (contract allowed, banking follow-up after
+   * submission). true = no contract until the bank account is linked. Provisional.
+   */
+  flLinkedIbanRequiredBeforeContract: false,
+  /** PRODUCT DECISION: does a Nafath technical failure use an attempt? Prototype: no. */
+  nafathTechnicalFailureCounts: false
+};
+
+/* ------------------------------------------------------------------ structural validation (not verification) */
+
+/** 10 digits starting with 7 (Unified / national CR). Not a registry check. */
 export const isStructuralCr = (v: string) => /^7\d{9}$/.test(v);
-/** Structural check only: 10 digits starting with 1 (Saudi National ID). Not a government check. */
+/** 10 digits starting with 1 (Saudi National ID). Not a government check. */
 export const isStructuralNationalId = (v: string) => /^1\d{9}$/.test(v);
 export const isSaudiMobile = (v: string) => /^5\d{8}$/.test(v);
-export const isUrl = (v: string) => /^https?:\/\/[^\s.]+\.[^\s]{2,}$/i.test(v.trim());
 export const normaliseIban = (v: string) => v.replace(/\s+/g, '').toUpperCase();
 export const isIbanFormat = (v: string) => /^SA\d{22}$/.test(normaliseIban(v));
 export const formatIban = (v: string) => normaliseIban(v).replace(/(.{4})/g, '$1 ').trim();
@@ -66,57 +93,7 @@ export function formatMobile(v: string) {
   return [d.slice(0, 2), d.slice(2, 5), d.slice(5, 9)].filter(Boolean).join(' ');
 }
 export const maskMobile = (v: string) => (v.length === 9 ? `+966 ${v.slice(0, 2)} ••• ••${v.slice(7)}` : '+966');
-export const maskIdentifier = (type: ApplicantType | null, v: string) =>
-  v.length < 6 ? v : type === 'CR' ? `${v.slice(0, 3)}••••${v.slice(-3)}` : `${v.slice(0, 3)}••••${v.slice(-3)}`;
-
-/* ------------------------------------------------------------------ Madfu category fixture */
-
-/**
- * FIXTURE. Madfu's own commercial taxonomy (not the government CR activity list). The final
- * catalogue and its restrictions are not available, so classifications here are demo-only and the
- * restricted examples are deliberately named as examples rather than real restrictions.
- */
-export interface Subcategory { id: string; label: string; classification: Classification }
-export interface CategoryGroup { id: string; label: string; subs: Subcategory[] }
-
-export const CATEGORIES: CategoryGroup[] = [
-  {
-    id: 'retail', label: 'Retail & e-commerce', subs: [
-      { id: 'retail-fashion', label: 'Fashion & accessories', classification: 'ALLOWED' },
-      { id: 'retail-electronics', label: 'Electronics', classification: 'ALLOWED' },
-      { id: 'retail-home', label: 'Home & furniture', classification: 'ALLOWED' }
-    ]
-  },
-  {
-    id: 'food', label: 'Food & beverage', subs: [
-      { id: 'food-cafe', label: 'Cafés & coffee', classification: 'ALLOWED' },
-      { id: 'food-restaurant', label: 'Restaurants', classification: 'ALLOWED' }
-    ]
-  },
-  {
-    id: 'services', label: 'Services', subs: [
-      { id: 'services-design', label: 'Design & creative services', classification: 'ALLOWED' },
-      { id: 'services-photo', label: 'Photography', classification: 'ALLOWED' },
-      { id: 'services-training', label: 'Training & courses', classification: 'ALLOWED' }
-    ]
-  },
-  {
-    id: 'fixture', label: 'Fixture examples (demo classifications)', subs: [
-      { id: 'fixture-cr-only', label: 'Example: CR-only subcategory', classification: 'CR_ONLY' },
-      { id: 'fixture-manual', label: 'Example: manual business review', classification: 'MANUAL_REVIEW' },
-      { id: 'fixture-blocked', label: 'Example: restricted subcategory', classification: 'BLOCKED' }
-    ]
-  }
-];
-
-export function findSub(subId: string): { group: CategoryGroup; sub: Subcategory } | null {
-  for (const group of CATEGORIES) {
-    const sub = group.subs.find((s) => s.id === subId);
-    if (sub) return { group, sub };
-  }
-  return null;
-}
-export const classificationOf = (subId: string): Classification | null => findSub(subId)?.sub.classification ?? null;
+export const maskIdentifier = (v: string) => (v.length < 6 ? v : `${v.slice(0, 3)}••••${v.slice(-3)}`);
 
 /* ------------------------------------------------------------------ global UX handover note (spec) */
 
