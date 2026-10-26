@@ -3,10 +3,10 @@ import { activityLabel } from './model/activity';
 import { COST_ASSUMPTIONS_SAR, LIMITS, RULE_FLAGS, kindLabel, maskMobile } from './model/config';
 import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './model/copy';
 import { subLabel } from './model/eligibility';
-import { pageScenarios, reuseNote } from './model/pageScenarios';
+import { PAGE_SCENARIOS, pageScenarios, reuseNote } from './model/pageScenarios';
 import { pct, priceFor, pricingSub } from './model/pricing';
 import { JOURNEY_PRESETS, scenarioById } from './model/scenarios';
-import { leaveSession, nextPaidCall, openContinueLink, routeFor } from './model/state';
+import { leaveSession, nextPaidCall, openContinueLink, reviewerBack, reviewerBackTarget, routeFor } from './model/state';
 import { VERIFICATION_LABEL, checkViews, knownCost } from './model/verifications';
 import { useProposed } from './store';
 
@@ -39,6 +39,7 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
   const cost = knownCost(app);
   const lead = backend.leads.find((l) => l.applicationId === app.id);
   const hardBlock = app.status === 'BLOCKED' || app.status === 'PAUSED_CR' ? app.outcomeReason : null;
+  const backTo = reviewerBackTarget(app);
 
   return (
     <aside className="ip" aria-label="Prototype Controls">
@@ -52,6 +53,14 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
         </button>
       </header>
+
+      <div className="ip-nav" role="group" aria-label="Reviewer navigation">
+        <button type="button" className="ip-back" disabled={!backTo} onClick={() => apply(reviewerBack)}
+          title={backTo ? `Show ${PAGE_SCENARIOS[backTo].title} again. Nothing is reset.` : 'Not available here (code screen, edit in progress, or the application has left draft).'}>
+          ← Back to previous step
+        </button>
+        <span className="ip-back-note">Reviewer only · keeps all state{backTo ? ` · ${PAGE_SCENARIOS[backTo].title}` : ''}</span>
+      </div>
 
       <div className="ip-tabs" role="tablist" aria-label="Prototype Controls sections">
         {(['step', 'demo', 'internal'] as const).map((t) => (

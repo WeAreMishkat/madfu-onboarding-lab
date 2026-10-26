@@ -44,7 +44,8 @@ const REMOVED = [
   'Registered-business IBAN, VAT question / number, number of branches, Freelancer "bank not linked → continue".',
   '3 / 4 / 6 / 9 / 12-month plan selection in the Commercial Offer and plans in the Contract.',
   'Unrestricted Review editing; Cancel that did not restore selections.',
-  'Unlimited OTP resends resetting the attempts.'
+  'Unlimited OTP resends resetting the attempts.',
+  'Contract Decline action and the "contract declined" outcome (the Contract page has Back to Review and Agree & Submit only).'
 ];
 
 /** Representative catalogue states used to list each screen's Page Scenarios in the doc. */
@@ -114,6 +115,7 @@ export function renderJourneyDoc(): string {
   }
 
   out.push('## Prototype Controls', '');
+  out.push('A reviewer-only **Back to previous step** button sits at the top of the controls (not merchant UX): it only changes the screen shown — no verification, lifecycle status or saved value is reset, and locked screens show their existing values. It is unavailable during an edit, on code screens and once the application has left DRAFT.', '');
   out.push('Three separate areas, none of them merchant UI: **This step** (Page Scenarios: only what can happen on the current screen), **Start demo** (journey presets, received Continue links) and **Internal view** (lifecycle, routing, eligibility, verified category, activities, risk, hard blocks, mobiles, checks called / reused / invalidated, cost assumptions, next paid call, rate review, ledger).', '');
   out.push('Journey presets (Start demo): ' + JOURNEY_PRESETS.map((p) => p.label).join(' · ') + '.', '');
   out.push('### Page Scenarios per screen', '');

@@ -36,11 +36,6 @@ export const OUTCOME_COPY: Record<OutcomeKind, { title: string; body: string; to
     title: 'Your application is saved.',
     body: 'Please update your CR. We will transfer your application to our Sales team, who can help you continue onboarding.',
     tone: 'neutral'
-  },
-  CONTRACT_DECLINED: {
-    title: 'You declined the contract.',
-    body: 'Your application has not been submitted. Your details are saved, and you can return to the contract.',
-    tone: 'warning'
   }
 };
 

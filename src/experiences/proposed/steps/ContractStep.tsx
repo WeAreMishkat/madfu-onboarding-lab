@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { wait } from '@/lib/timing';
 import { pct } from '../model/pricing';
-import { agreeAndSubmit, declineContract } from '../model/state';
+import { agreeAndSubmit } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
-import { Actions, Alert, Button, StepHeader } from '../ui/components';
+import { Actions, Button, StepHeader } from '../ui/components';
 import { IconArrowLeft } from '../ui/icons';
 import { stageEyebrow } from './shared';
 
 /**
- * Stage 7 — Contract ONLY. Title, scrollable contract, short disclaimer and ONE primary action:
+ * Stage 7 — Contract ONLY. Title, scrollable contract, short disclaimer, Back to review and ONE
+ * primary action (there is no Decline):
  * Agree & Submit records the (simulated) acceptance AND submits the application, then the success
  * page opens. No checkbox, no second Submit, no plan selection. The standard commission appears as
  * contract content only.
@@ -19,7 +20,6 @@ export function ContractStep() {
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const offer = state.app.commercial.agreed;
   const [busy, setBusy] = useState(false);
-  const [confirmDecline, setConfirmDecline] = useState(false);
 
   const agree = async () => { setBusy(true); await wait(1000); setBusy(false); apply(agreeAndSubmit); };
 
@@ -52,16 +52,6 @@ export function ContractStep() {
         </div>
       </div>
 
-      {confirmDecline && (
-        <Alert tone="warning" title="Decline the agreement?" action={
-          <div className="mb-btn-row">
-            <Button variant="secondary" size="sm" onClick={() => setConfirmDecline(false)}>Keep reading</Button>
-            <Button variant="danger" size="sm" onClick={() => apply(declineContract)}>Decline</Button>
-          </div>}>
-          Your application will not be submitted. Your details stay saved.
-        </Alert>
-      )}
-
       <p className="mb-contract-disclaimer">
         By clicking <strong>Agree &amp; Submit</strong>, you confirm your acceptance of this agreement and the applicable terms, including the Privacy Policy, and submit your application.
         <br /><span className="mb-small">Prototype copy — final wording subject to Legal review.</span>
@@ -69,10 +59,7 @@ export function ContractStep() {
 
       <Actions split>
         <Button variant="ghost" iconLeft={<IconArrowLeft size={18} />} onClick={() => apply((s) => ({ ...s, app: { ...s.app, step: 'review' } }))}>Back to review</Button>
-        <div className="mb-btn-row">
-          <Button variant="link" onClick={() => setConfirmDecline(true)}>Decline</Button>
-          <Button size="lg" loading={busy} loadingLabel="Submitting…" onClick={() => void agree()}>Agree &amp; Submit</Button>
-        </div>
+        <Button size="lg" loading={busy} loadingLabel="Submitting…" onClick={() => void agree()}>Agree &amp; Submit</Button>
       </Actions>
     </section>
   );

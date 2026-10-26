@@ -58,6 +58,7 @@
 - VAT and the number of branches are removed from onboarding.
 - Payment-plan selection is removed from onboarding (configured later in the Merchant Portal). The Commercial Offer shows the standard offer and Continue.
 - The better-rate request stays optional and low-priority (collapsed; uploads only after "Request rate review"); the interest is kept even without a file.
+- The Contract page has no Decline action: Back to Review, or Agree & Submit.
 - Submitted applications open Application Progress; they never reopen Review, Contract or submission.
 - Resume continues incomplete applications at the first unfinished stage, reusing every valid check.
 - Verified, sensitive sections are locked; the few editable sections use a transactional edit (draft → Save; Cancel restores all).
@@ -211,9 +212,8 @@ Verified and sensitive sections are locked. Only store presence and the rate-rev
 
 ### I · Contract, submission and Application Progress
 
-One action: Agree & Submit records acceptance and submits. A submitted application opens Application Progress — never Review, Contract or a second submission. No activation is claimed before it happens.
+Back to Review, or one action: Agree & Submit records acceptance and submits (no Decline). A submitted application opens Application Progress — never Review, Contract or a second submission. No activation is claimed before it happens.
 
-- **Contract declined** _(outcome)_ — Still a draft; resumable
 - **Review** _(screen)_
 - **Contract gate** _(decision)_ — Nafath · mobile ownership · owner (CR) · certificate + IBAN (FL)
 - **Contract** _(screen)_ — Standard commission as Schedule 1 · Agree & Submit
@@ -499,7 +499,6 @@ _Freelancer IBAN linkage must be verified before Review can continue; without Na
 | FL_CERT_REQUIRED | A Freelancer Certificate is required to continue. |
 | BLOCKED | We can’t continue your application online. |
 | PAUSED_CR | Your application is saved. |
-| CONTRACT_DECLINED | You declined the contract. |
 
 ### Internal reason codes (shown to the merchant only as a personalised sentence)
 
@@ -578,6 +577,8 @@ Other open points:
 
 ## Prototype Controls
 
+A reviewer-only **Back to previous step** button sits at the top of the controls (not merchant UX): it only changes the screen shown — no verification, lifecycle status or saved value is reset, and locked screens show their existing values. It is unavailable during an edit, on code screens and once the application has left DRAFT.
+
 Three separate areas, none of them merchant UI: **This step** (Page Scenarios: only what can happen on the current screen), **Start demo** (journey presets, received Continue links) and **Internal view** (lifecycle, routing, eligibility, verified category, activities, risk, hard blocks, mobiles, checks called / reused / invalidated, cost assumptions, next paid call, rate review, ledger).
 
 Journey presets (Start demo): Happy path — registered business · Happy path — Freelancer · Sales lead · Freelancer without certificate · Existing incomplete application · Submitted application · Live merchant · Mobile mismatch before Nafath · Expired CR · Resume (Continue link) · Review & edit.
@@ -595,7 +596,7 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - **Business Details** (Store-presence URL validation (format only), Freelancer IBAN linkage provider): Channel declared on Page 1 (simulator): Online / Offline / Both — Store presence links: Valid website / Maps links / Website: social-media page / Website: invalid / Maps: not a Google Maps link — Freelancer IBAN linkage: Verified / Not linked (first mismatch) / Not linked twice → another IBAN needed / Technical error (no attempt used) / Enter a different IBAN
 - **Commercial Offer** (Pricing & Commission Matrix (mock)): Better rate (optional): Standard offer only / Rate review requested (no file) / Evidence uploaded / Optional upload failed
 - **Review** (None): Controlled edit: Edit store presence / Edit rate review request
-- **Contract** (Contract acceptance (generic, provider not approved)): Contract: Normal contract / Contract declined
+- **Contract** (Contract acceptance (generic, provider not approved)): no simulated outcomes
 - **Application Progress** (Madfu application records (internal)): Application status: Submitted / Under review / Action required / Approved / Unable to proceed — Activation (outside onboarding): Merchant goes live
 
 ## Scenario catalogue (automated test coverage)
@@ -672,7 +673,6 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - **Review with locked verified sections** — Only store presence and the rate review can be edited; Cancel restores everything.
 - **Freelancer review** — Certificate, IBAN and verified category locked.
 - **Contract** — Agree & Submit: one action. Standard commission only.
-- **Contract declined** — Still a draft; resumable at the contract.
 - **Submitted for manual verification** — Nafath failed twice: Review submits without a contract.
 
 ### Application status
@@ -711,3 +711,4 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - 3 / 4 / 6 / 9 / 12-month plan selection in the Commercial Offer and plans in the Contract.
 - Unrestricted Review editing; Cancel that did not restore selections.
 - Unlimited OTP resends resetting the attempts.
+- Contract Decline action and the "contract declined" outcome (the Contract page has Back to Review and Agree & Submit only).

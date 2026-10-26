@@ -771,3 +771,9 @@ legend.mb-label { margin-bottom: 8px; }
   .ip { top: auto; bottom: 0; height: 44vh; border-left: 0; border-top: 1px solid #d5d8e2; border-radius: 14px 14px 0 0; box-shadow: 0 -12px 32px rgba(16, 20, 64, 0.18); }
   .mb-shell:has(.ip) .mb-main { padding-bottom: 48vh; }
 }
+/* Reviewer-only navigation (Prototype Controls): secondary, outside the merchant UI. */
+.ip-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 18px 10px; padding: 8px 10px; border: 1px dashed #c3c8d8; border-radius: 8px; background: #fff; }
+.ip-back { font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 6px; border: 1px solid #c3c8d8; background: #f4f5f8; color: #1d2133; cursor: pointer; }
+.ip-back:hover:not(:disabled) { background: #e9ebf2; }
+.ip-back:disabled { opacity: 0.5; cursor: not-allowed; }
+.ip-back-note { font-size: 11.5px; color: #5b6b8c; }

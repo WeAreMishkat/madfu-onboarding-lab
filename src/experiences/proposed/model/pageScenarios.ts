@@ -9,8 +9,8 @@
 import { LIMITS } from './config';
 import { DEMO, DEMO_SMS_CODE, demoIban, eligiblePersons } from './mock';
 import {
-  addEvidence, asksPrerequisite, declineContract, editMobileFromOtp, expireOtp, failUpload, finishIbanCheck, goLive, loadCertificates, nafathResult,
-  reopenContract, requestRateReview, resendOtp, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendToNafath, setIban,
+  addEvidence, asksPrerequisite, editMobileFromOtp, expireOtp, failUpload, finishIbanCheck, goLive, loadCertificates, nafathResult,
+  requestRateReview, resendOtp, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendToNafath, setIban,
   setIdentity, setKyb, setPresence, setReviewStatus, startEdit, startIbanCheck, verifyOtp, withdrawRateReview
 } from './state';
 import type { Application, CertificatesResult, Existence, IbanResult, Kyb, Lifecycle, MobileMatchResult, NafathResult, PersonsResult, ProposedState, Sim, StepId } from './types';
@@ -363,15 +363,9 @@ const review: PageDef = {
 
 const contract: PageDef = {
   title: 'Contract',
-  intro: 'Contract only. Agree & Submit completes the application; the standard commission is contract content.',
+  intro: 'Contract only: Back to Review or Agree & Submit, which completes the application. There is no Decline action. The standard commission is contract content.',
   integrations: ['Contract acceptance (generic, provider not approved)'],
-  groups: () => [{
-    title: 'Contract',
-    options: [
-      { id: 'normal', label: 'Normal contract', run: (x) => app(x, { contract: { status: 'ready', acceptedAt: '' } }), current: (x) => x.app.contract.status === 'ready' },
-      { id: 'declined', label: 'Contract declined', run: declineContract }
-    ]
-  }]
+  groups: () => []
 };
 
 const outcome: PageDef = {
@@ -379,7 +373,6 @@ const outcome: PageDef = {
   intro: 'End page. Re-entering with the same identifier routes by the saved lifecycle status.',
   integrations: [],
   groups: (s) => {
-    if (s.app.outcome === 'CONTRACT_DECLINED') return [{ title: 'After a decline', options: [{ id: 'reopen', label: 'Return to the contract', run: reopenContract }] }];
     if (s.app.outcome === 'PAUSED_CR') return [{ title: 'Sales recovery (internal)', note: 'No merchant-facing refresh: only Sales re-checks the CR, after it is corrected.', options: [{ id: 'recover', label: 'Sales: CR corrected → controlled re-check', run: salesRecoverCr }] }];
     return [];
   }

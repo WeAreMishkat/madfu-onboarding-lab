@@ -143,7 +143,6 @@ export const SCENARIOS: Scenario[] = [
   { id: 'review', group: 'Review & contract', label: 'Review with locked verified sections', hint: 'Only store presence and the rate review can be edited; Cancel restores everything.', build: () => at('review', 'CR', 'review') },
   { id: 'review-fl', group: 'Review & contract', label: 'Freelancer review', hint: 'Certificate, IBAN and verified category locked.', build: () => at('review-fl', 'FL_CERT', 'review') },
   { id: 'contract', group: 'Review & contract', label: 'Contract', hint: 'Agree & Submit: one action. Standard commission only.', build: () => at('contract', 'CR', 'contract') },
-  { id: 'contract-decline', group: 'Review & contract', label: 'Contract declined', hint: 'Still a draft; resumable at the contract.', build: () => at('contract-decline', 'CR', 'contract') },
   { id: 'submit-manual', group: 'Review & contract', label: 'Submitted for manual verification', hint: 'Nafath failed twice: Review submits without a contract.', build: () => at('submit-manual', 'CR', 'review', simWith(), (a) => ({ ...a, nafath: { ...a.nafath, status: 'exhausted', failures: 2, verifiedFor: null }, verifications: { ...a.verifications, NAFATH: undefined }, flags: [...a.flags, 'NAFATH_UNVERIFIED'] })) },
 
   // Status

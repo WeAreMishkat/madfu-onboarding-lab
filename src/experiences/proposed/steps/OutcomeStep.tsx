@@ -1,7 +1,5 @@
 import { OUTCOME_COPY, REASON_USER_COPY } from '../model/copy';
-import { reopenContract } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
-import { Button } from '../ui/components';
 import { IconAlert, IconCheck, IconInfo } from '../ui/icons';
 
 /**
@@ -9,7 +7,7 @@ import { IconAlert, IconCheck, IconInfo } from '../ui/icons';
  * reason of the rule that applied (never internal scoring). No activation claim.
  */
 export function OutcomeStep() {
-  const { state, apply } = useProposed();
+  const { state } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const { app } = state;
   const kind = app.outcome ?? 'SUBMITTED_MANUAL';
@@ -28,12 +26,6 @@ export function OutcomeStep() {
       {personal && reason && <p className="mb-description">{reason.text}</p>}
       {!(kind === 'PAUSED_CR' && reason) && <p className="mb-description">{copy.body}</p>}
       {(submitted || kind === 'PAUSED_CR') && app.id && <p className="mb-small mb-muted mb-ref-line">Application reference <span className="mb-mono">{app.id}</span></p>}
-
-      {kind === 'CONTRACT_DECLINED' && (
-        <div className="mb-end-actions">
-          <Button variant="secondary" onClick={() => apply(reopenContract)}>Review the agreement again</Button>
-        </div>
-      )}
     </section>
   );
 }

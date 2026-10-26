@@ -257,6 +257,36 @@ describe('Review: locked sections, transactional edit', () => {
   });
 });
 
+describe('Contract: Back to Review and Agree & Submit only', () => {
+  it('has no Decline action', async () => {
+    start('contract');
+    await screen.findByRole('heading', { name: 'Merchant agreement' });
+    const main = within(screen.getByRole('main'));
+    expect(main.queryByRole('button', { name: /Decline/ })).toBeNull();
+    expect(main.getAllByRole('button').map((b) => b.textContent)).toEqual(['Back to review', 'Agree & Submit']);
+  });
+});
+
+describe('Reviewer-only Back in Prototype Controls', () => {
+  it('moves to the previous step and shows the saved, verified values', async () => {
+    const { user } = start('contract');
+    await screen.findByRole('heading', { name: 'Merchant agreement' });
+    const back = within(controls()).getByRole('button', { name: '← Back to previous step' });
+    await user.click(back);
+    expect(await screen.findByRole('heading', { name: 'Review your application' })).toBeInTheDocument();
+    await user.click(back);
+    await user.click(back);
+    expect(await screen.findByRole('heading', { name: 'Business details' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Online store or business website')).toHaveValue('https://najdroastery.example.com');
+    await user.click(back);
+    expect(await screen.findByText('Verified with Nafath')).toBeInTheDocument();
+    await user.click(back);
+    expect(await screen.findByRole('radio', { name: /Mohammed/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Nora/ })).toBeDisabled();
+    expect(within(controls()).getByRole('button', { name: '← Back to previous step' })).toBeDisabled();
+  });
+});
+
 describe('Prototype Controls', () => {
   it('OTP page shows only OTP cases; Internal view shows lifecycle and mobiles', async () => {
     const { user } = start('otp-errors');

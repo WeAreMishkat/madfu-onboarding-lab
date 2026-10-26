@@ -44,6 +44,7 @@ export const CONFIRMED_DECISIONS: string[] = [
   'VAT and the number of branches are removed from onboarding.',
   'Payment-plan selection is removed from onboarding (configured later in the Merchant Portal). The Commercial Offer shows the standard offer and Continue.',
   'The better-rate request stays optional and low-priority (collapsed; uploads only after "Request rate review"); the interest is kept even without a file.',
+  'The Contract page has no Decline action: Back to Review, or Agree & Submit.',
   'Submitted applications open Application Progress; they never reopen Review, Contract or submission.',
   'Resume continues incomplete applications at the first unfinished stage, reusing every valid check.',
   'Verified, sensitive sections are locked; the few editable sections use a transactional edit (draft → Save; Cancel restores all).',

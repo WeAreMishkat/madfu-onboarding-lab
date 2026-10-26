@@ -255,6 +255,7 @@ export function existenceFor(s: ProposedState): { existence: Existence; mobile: 
  * entered mobile is never used to open an existing record.
  */
 export function submitIdentify(s: ProposedState): ProposedState {
+  if (s.app.id) return s;
   const checks = s.app.identifyChecks + 1;
   if (s.sim.rateLimited || checks > LIMITS.identifyChecksPerSession) return withApp(s, { throttled: true, identifyChecks: checks });
   let next = ensureFixture(withApp(s, { identifyChecks: checks, throttled: false }));
@@ -740,13 +741,6 @@ export function agreeAndSubmit(s: ProposedState): ProposedState {
   return revokeTokens(finish(withApp(s, { contract: { status: 'accepted', acceptedAt: now() } }), 'SUBMITTED', 'SUBMITTED'));
 }
 
-export const declineContract = (s: ProposedState): ProposedState =>
-  finish(withApp(s, { contract: { status: 'declined', acceptedAt: '' } }), 'CONTRACT_DECLINED', 'DRAFT');
-
-/** After a decline (or a resume after one), the contract opens again. */
-export const reopenContract = (s: ProposedState): ProposedState =>
-  s.app.status === 'DRAFT' ? go(s, 'contract', { outcome: null, outcomeReason: null, contract: { status: 'ready', acceptedAt: '' } }) : s;
-
 /** Application Progress (prototype control): the team moves a submitted application along. */
 export function setReviewStatus(s: ProposedState, status: Lifecycle): ProposedState {
   if (!SUBMITTED_STATUSES.includes(s.app.status) || !SUBMITTED_STATUSES.includes(status)) return s;
@@ -768,12 +762,44 @@ export function salesRecoverCr(s: ProposedState): ProposedState {
   return go({ ...s, sim: { ...s.sim, cr: { ...s.sim.cr, status: 'ACTIVE' } }, app }, 'persons');
 }
 
+/* ------------------------------------------------------------------ reviewer-only Back (Prototype Controls) */
+
+/** Merchant-facing steps a reviewer can step back through after the application exists. */
+const REVIEWER_STEPS: StepId[] = ['persons', 'nafath', 'certificates', 'business', 'commercial', 'review', 'contract'];
+
+/**
+ * Reviewer / prototype navigation only — not merchant UX. Moves to the previous screen WITHOUT
+ * changing anything else: no verification, lifecycle status or saved value is reset, and locked
+ * screens simply show their existing values. Not available during an edit, on a code screen, or once
+ * the application has left DRAFT (submitted, lead, blocked, paused).
+ */
+export function reviewerBackTarget(app: Application): StepId | null {
+  if (app.returnTo || app.editBaseline) return null;
+  if (!app.id) {
+    if (app.step === 'identify') return 'kyb';
+    if (app.step === 'otp' && app.otp.purpose === 'application') return 'identify';
+    if (app.step === 'outcome' && app.status === 'BLOCKED') return 'kyb';
+    return null;
+  }
+  if (app.status !== 'DRAFT') return null;
+  const path = pathFor(app).filter((st) => REVIEWER_STEPS.includes(st));
+  const i = path.indexOf(app.step);
+  return i > 0 ? path[i - 1] : null;
+}
+
+export function reviewerBack(s: ProposedState): ProposedState {
+  const target = reviewerBackTarget(s.app);
+  if (!target) return s;
+  // Before the application exists, Page 1 / Page 2 are simply reopened (nothing is persisted yet).
+  if (!s.app.id) return withApp(s, { step: target, status: 'QUALIFICATION', outcome: null, outcomeReason: null });
+  return persist(withApp(s, { step: target }));
+}
+
 /* ------------------------------------------------------------------ resume target (DRAFT only) */
 
 /** First screen that still needs input in a DRAFT. Never used for any other lifecycle status. */
 export function firstIncomplete(app: Application): StepId {
   if (!app.id) return app.eligibility ? 'identify' : 'kyb';
-  if (app.contract.status === 'declined') return 'contract';
   if (app.kyb.kind === 'CR') {
     if (app.cr.status !== 'loaded' || app.persons.status !== 'loaded' || !app.persons.selectedId) return 'persons';
     if (app.nafath.status !== 'verified' && app.nafath.status !== 'exhausted') return 'nafath';

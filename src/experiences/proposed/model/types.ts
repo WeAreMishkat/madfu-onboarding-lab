@@ -108,8 +108,7 @@ export type OutcomeKind =
   | 'SALES_LEAD'
   | 'FL_CERT_REQUIRED'
   | 'BLOCKED'
-  | 'PAUSED_CR'
-  | 'CONTRACT_DECLINED';
+  | 'PAUSED_CR';
 
 /** Internal flags. Never shown to the applicant as reasons. */
 export type Flag =
@@ -342,7 +341,7 @@ export interface Application {
     uploadError: string | null;
     agreed: AgreedOffer | null;
   };
-  contract: { status: 'unavailable' | 'ready' | 'accepted' | 'declined'; acceptedAt: string };
+  contract: { status: 'unavailable' | 'ready' | 'accepted'; acceptedAt: string };
 
   verifications: Partial<Record<VerificationType, VerificationRecord>>;
   ledger: LedgerEntry[];

@@ -272,9 +272,8 @@ const H: JourneyMap = {
 
 const I: JourneyMap = {
   id: 'contract', large: true, title: `I · ${S(7)}, submission and Application Progress`,
-  caption: 'One action: Agree & Submit records acceptance and submits. A submitted application opens Application Progress — never Review, Contract or a second submission. No activation is claimed before it happens.',
+  caption: 'Back to Review, or one action: Agree & Submit records acceptance and submits (no Decline). A submitted application opens Application Progress — never Review, Contract or a second submission. No activation is claimed before it happens.',
   nodes: [
-    { id: 'dec', kind: 'outcome', label: 'Contract declined', detail: 'Still a draft; resumable', col: 2, row: 0, outcome: 'CONTRACT_DECLINED' },
     { id: 'review', kind: 'screen', label: S(6), col: 0, row: 1, step: 'review' },
     { id: 'gate', kind: 'decision', label: 'Contract gate', detail: 'Nafath · mobile ownership · owner (CR) · certificate + IBAN (FL)', col: 1, row: 1 },
     { id: 'contract', kind: 'screen', label: S(7), detail: 'Standard commission as Schedule 1 · Agree & Submit', col: 2, row: 1, step: 'contract' },
@@ -287,7 +286,7 @@ const I: JourneyMap = {
   ],
   edges: [
     { from: 'review', to: 'gate' }, { from: 'gate', to: 'contract', label: 'pass' }, { from: 'gate', to: 'mv', label: 'blocked' }, { from: 'contract', to: 'sub', label: 'Agree & Submit' },
-    { from: 'contract', to: 'dec', label: 'decline' }, { from: 'sub', to: 'status', label: 'later' }, { from: 'status', to: 'states', dashed: true }, { from: 'status', to: 'login', label: 'live', dashed: true }
+    { from: 'sub', to: 'status', label: 'later' }, { from: 'status', to: 'states', dashed: true }, { from: 'status', to: 'login', label: 'live', dashed: true }
   ]
 };
 

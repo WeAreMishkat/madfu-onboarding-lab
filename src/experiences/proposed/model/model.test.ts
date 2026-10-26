@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveCategory } from './activity';
 import { LIMITS, RULE_FLAGS, STAGES } from './config';
+import { OUTCOME_COPY } from './copy';
 import { evaluateEligibility } from './eligibility';
 import { GOV_RULES, evaluateGovernment } from './government';
 import { DEMO, DEMO_SMS_CODE, demoIban } from './mock';
@@ -8,9 +9,9 @@ import { buildOffer, pricingSub } from './pricing';
 import { HARD_BLOCKS, RISK_CONFIG, assessRisk } from './risk';
 import { SCENARIOS, scenarioById } from './scenarios';
 import {
-  addEvidence, agreeAndSubmit, cancelEdit, confirmCertificate, confirmOffer, continueAfterNafath, continueFromReview, continueToNafath, declineContract,
+  addEvidence, agreeAndSubmit, cancelEdit, confirmCertificate, confirmOffer, continueAfterNafath, continueFromReview, continueToNafath,
   existenceFor, finishIbanCheck, firstIncomplete, goLive, initialSim, initialState, leaveSession, loadCertificates, nafathResult, openContinueLink, prefill,
-  reopenContract, requestRateReview, resendOtp, routeFor, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendContinueLink,
+  reviewerBack, reviewerBackTarget, requestRateReview, resendOtp, routeFor, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendContinueLink,
   sendToNafath, setIban, setIdentity, setKyb, setPresence, setReviewStatus, startEdit, startIbanCheck, startMobileChange, submitBusiness, submitIdentify,
   submitKyb, submitMobileChange, verifyOtp, withSaved
 } from './state';
@@ -175,7 +176,7 @@ describe('Existing records: registered-mobile OTP, status-aware routing', () => 
     expect(routeFor({ ...s.app, status: 'UNDER_REVIEW' })).toBe('status');
     expect(continueFromReview(s).app.step).toBe('status');
     expect(agreeAndSubmit({ ...s, app: { ...s.app, step: 'contract' } }).app.status).toBe('SUBMITTED');
-    expect(reopenContract(s).app.step).toBe('status');
+    expect(reviewerBack(s).app.step).toBe('status');
   });
 
   it('live merchant: OTP to the account mobile, then login; no application is created', () => {
@@ -481,11 +482,11 @@ describe('Contract, submission and Application Progress', () => {
     expect(otp(apply(CR_KYB, {}, initialSim(), s)).app.step).toBe('login');
   });
 
-  it('declined contract stays a DRAFT and is resumable at the contract', () => {
-    const s = declineContract(withSaved(prefill('CR', 'contract')));
-    expect(s.app.status).toBe('DRAFT');
+  it('there is no decline path: the contract either stays open or is agreed', () => {
+    expect(Object.keys(OUTCOME_COPY)).not.toContain('CONTRACT_DECLINED');
+    const s = withSaved(prefill('CR', 'contract'));
     expect(firstIncomplete(s.app)).toBe('contract');
-    expect(reopenContract(s).app.step).toBe('contract');
+    expect(agreeAndSubmit(s).app.outcome).toBe('SUBMITTED');
   });
 
   it('Nafath not verified: Review submits for manual verification without a contract', () => {
@@ -493,6 +494,47 @@ describe('Contract, submission and Application Progress', () => {
     const s = continueFromReview(withSaved({ ...base, nafath: { ...base.nafath, status: 'exhausted', verifiedFor: null }, verifications: { ...base.verifications, NAFATH: undefined } }));
     expect(s.app.outcome).toBe('SUBMITTED_MANUAL');
     expect(s.app.status).toBe('SUBMITTED');
+  });
+});
+
+describe('Reviewer-only Back (Prototype Controls)', () => {
+  it('steps back through a draft without changing any verification, status or saved value', () => {
+    const s = withSaved(prefill('CR', 'contract'));
+    const steps: string[] = [];
+    let x = s;
+    while (reviewerBackTarget(x.app)) { x = reviewerBack(x); steps.push(x.app.step); }
+    expect(steps).toEqual(['review', 'commercial', 'business', 'nafath', 'persons']);
+    const { step: _a, ...after } = x.app;
+    const { step: _b, ...before } = s.app;
+    expect(after).toEqual(before);
+    expect(x.backend.applications[s.app.id!].verifications).toEqual(s.app.verifications);
+    // Locked screens show their values: the owner cannot be changed, Nafath stays verified.
+    expect(selectPerson(x, 'p2').app.persons.selectedId).toBe('p1');
+    expect(x.app.nafath.status).toBe('verified');
+  });
+
+  it('Freelancer path goes back through certificate and Nafath', () => {
+    let x = withSaved(prefill('FL_CERT', 'review'));
+    const steps: string[] = [];
+    while (reviewerBackTarget(x.app)) { x = reviewerBack(x); steps.push(x.app.step); }
+    expect(steps).toEqual(['commercial', 'business', 'certificates', 'nafath']);
+  });
+
+  it('before the application exists it reopens Page 2 / Page 1; never on code screens, during an edit or after DRAFT', () => {
+    const identify = submitKyb(setKyb(initialState(), CR_KYB));
+    expect(reviewerBack(identify).app.step).toBe('kyb');
+    const otpNew = apply(CR_KYB);
+    expect(reviewerBack(otpNew).app.step).toBe('identify');
+    expect(reviewerBackTarget(apply(CR_KYB, {}, simWith({ existence: 'incomplete' })).app)).toBeNull();
+    expect(reviewerBackTarget(startEdit(withSaved(prefill('CR', 'review')), 'presence').app)).toBeNull();
+    expect(reviewerBackTarget(withSaved(prefill('CR', 'status')).app)).toBeNull();
+    const blocked = submitKyb(setKyb(initialState(), { ...CR_KYB, group: 'fixture', sub: 'fixture-blocked' }));
+    expect(reviewerBack(blocked).app).toMatchObject({ step: 'kyb', outcome: null, status: 'QUALIFICATION' });
+  });
+
+  it('re-submitting Page 2 after stepping back cannot create a second application', () => {
+    const s = withSaved(prefill('CR', 'business'));
+    expect(submitIdentify({ ...s, app: { ...s.app, step: 'identify' } })).toEqual({ ...s, app: { ...s.app, step: 'identify' } });
   });
 });
 

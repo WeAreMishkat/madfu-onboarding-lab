@@ -5,7 +5,7 @@
 import { DEMO, DEMO_SMS_CODE } from '../model/mock';
 import { scenarioById } from '../model/scenarios';
 import {
-  agreeAndSubmit, continueFromReview, declineContract, finishIbanCheck, initialState, loadCertificates, nafathResult, runBusinessVerification,
+  agreeAndSubmit, continueFromReview, finishIbanCheck, initialState, loadCertificates, nafathResult, runBusinessVerification,
   runCertificatePrecheck, sendToNafath, setIban, setIdentity, setPresence, startEdit, startIbanCheck, startMobileChange, submitIdentify, submitKyb, verifyOtp
 } from '../model/state';
 import type { ProposedState } from '../model/types';
@@ -73,7 +73,6 @@ export const SNAPSHOTS: Snapshot[] = [
   { id: 'contract', section: 'contract', title: 'Contract', caption: 'One action: Agree & Submit. Standard commission only; no plans.', state: () => sc('contract') },
   { id: 'out-submitted', section: 'contract', title: 'Outcome: submitted', caption: 'Shown immediately after Agree & Submit. Returning later opens Application Progress.', state: () => agreeAndSubmit(sc('contract')) },
   { id: 'out-manual', section: 'contract', title: 'Outcome: manual verification', caption: 'Nafath not verified: submitted without a contract.', state: () => continueFromReview(sc('submit-manual')) },
-  { id: 'out-declined', section: 'contract', title: 'Outcome: contract declined', caption: 'Still a draft; resumable at the contract.', state: () => declineContract(sc('contract-decline')) },
   { id: 'status-action', section: 'contract', title: 'Application Progress: action required', caption: 'Status only; the team contacts the merchant.', state: () => sc('status-action') },
 
   // Validation
