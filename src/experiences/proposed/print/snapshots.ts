@@ -5,14 +5,13 @@
 import { DEMO, DEMO_SMS_CODE } from '../model/mock';
 import { scenarioById } from '../model/scenarios';
 import {
-  acceptContract, continueFromReview, declineContract, finishIbanCheck, initialState, loadCertificates, loadPersons, nafathResult, prefill,
-  runCrVerification, setBankLinked, setIdentity, setLead, startEdit, startIbanCheck, startNafath, submitApplication, submitIdentify, submitKyb,
-  submitLead, verifyOtp, withSaved
+  agreeAndSubmit, continueFromReview, declineContract, finishIbanCheck, initialState, loadCertificates, nafathResult, runBusinessVerification,
+  runCertificatePrecheck, sendToNafath, setIban, setIdentity, setPresence, startEdit, startIbanCheck, startMobileChange, submitIdentify, submitKyb, verifyOtp
 } from '../model/state';
 import type { ProposedState } from '../model/types';
 import { URL_ERROR_COPY } from '../model/urls';
 
-export type SnapshotSection = 'kyb' | 'identify' | 'cr' | 'fl' | 'banking' | 'commercial' | 'review' | 'contract' | 'validation';
+export type SnapshotSection = 'kyb' | 'identify' | 'cr' | 'fl' | 'details' | 'commercial' | 'review' | 'contract' | 'validation';
 
 export interface Snapshot {
   id: string;
@@ -25,61 +24,61 @@ export interface Snapshot {
 
 const sc = (id: string) => scenarioById(id)!.build();
 const otp = (s: ProposedState) => verifyOtp(s, DEMO_SMS_CODE);
-const lead = (id: string) => setLead(submitKyb(sc(id)), { name: 'Sara Al-Harbi (demo)', mobile: DEMO.mobile });
+const sent = (id: string) => submitIdentify(sc(id));
+const salesAtIdentify = () => setIdentity(submitKyb(sc('kyb-cr-sales')), { identifier: DEMO.cr, mobile: DEMO.mobile });
 
 export const SNAPSHOTS: Snapshot[] = [
-  // Stage 1
-  { id: 'kyb-empty', section: 'kyb', title: 'Know Your Business', caption: 'The first page. No CR, National ID, mobile or OTP. Eligibility is checked before anything is verified.', state: () => initialState() },
-  { id: 'kyb-both', section: 'kyb', title: 'Know Your Business: Both channels', caption: 'Online needs a website (no social media / WhatsApp); offline needs a Google Maps link. Both: both.', state: () => sc('kyb-cr-both') },
-  { id: 'kyb-fl', section: 'kyb', title: 'Freelancer without certificate', caption: 'A valid answer, not a dead end: becomes a lead with its KYB answers.', state: () => sc('kyb-fl-no-cert') },
-  { id: 'lead', section: 'kyb', title: 'Lead contact', caption: 'Name and mobile, then SMS OTP. No verification screens.', state: () => lead('kyb-fl-no-cert') },
-  { id: 'out-fl-cert', section: 'kyb', title: 'Outcome: certificate required (lead)', caption: 'Information received; Sales / team may contact. Internal: LEAD_FL_CERT_REQUIRED.', state: () => otp(submitLead(lead('kyb-fl-no-cert'))) },
-  { id: 'out-sales', section: 'kyb', title: 'Outcome: Sales lead', caption: 'Registered business above SAR 20M (or below SAR 100K: Business Team rejects under the proposed policy).', state: () => otp(submitLead(lead('submit-lead'))) },
-  { id: 'out-not-eligible', section: 'kyb', title: 'Outcome: not eligible', caption: 'Stopped before any external cost. User sees a generic reason; the reason code stays internal.', state: () => submitKyb(sc('kyb-fl-cr-required')) },
+  // Page 1
+  { id: 'kyb-empty', section: 'kyb', title: 'Know Your Business', caption: 'Five questions. No CR, National ID, mobile, OTP or URL. Eligibility is checked before anything is verified.', state: () => initialState() },
+  { id: 'kyb-filled', section: 'kyb', title: 'Know Your Business: filled in', caption: 'The channel is captured now; store links are asked later in Business Details.', state: () => sc('kyb-cr-both') },
+  { id: 'out-blocked', section: 'kyb', title: 'Blocked on Page 1', caption: 'Personalised reason of the rule that applied; no OTP, no external cost.', state: () => submitKyb(sc('kyb-fl-cr-required')) },
 
-  // Stage 2
-  { id: 'identify', section: 'identify', title: 'Identify & Verify', caption: 'Only after eligibility. CR / Unified Number (or National ID) + mobile. Duplicate checks run in the backend.', state: () => setIdentity(submitKyb(sc('kyb-cr-online')), { identifier: DEMO.cr, mobile: DEMO.mobile }) },
-  { id: 'otp', section: 'identify', title: 'SMS OTP', caption: 'After the code the Application is created and the Stage-1 snapshot is linked to it.', state: () => submitIdentify(setIdentity(submitKyb(sc('kyb-cr-online')), { identifier: DEMO.cr, mobile: DEMO.mobile })) },
-  { id: 'resume-otp', section: 'identify', title: 'Continue Application link → OTP', caption: 'The link identifies the application; the code opens it. Nothing else is re-asked or re-verified.', state: () => sc('resume-cr') },
-  { id: 'out-duplicate', section: 'identify', title: 'Outcome: duplicate identity', caption: 'Application exists for this CR under another mobile: no new application.', state: () => otp(submitIdentify(sc('id-dup-cr'))) },
+  // Page 2 + routing
+  { id: 'identify', section: 'identify', title: 'Identifier + mobile + prerequisite', caption: 'CR + mobile + "Are you an owner or manager registered on this CR?". An internal existence check runs on Send code.', state: () => sc('id-new-cr') },
+  { id: 'identify-fl', section: 'identify', title: 'Freelancer: identifier + mobile + IBAN question', caption: '"Is your IBAN linked to your Freelancer Certificate?" — a cost-saving declaration; the linkage is verified later.', state: () => sc('id-new-fl') },
+  { id: 'identify-sales', section: 'identify', title: 'Sales route: identifier + mobile only', caption: 'Above SAR 20M: no prerequisite question; after the code, the Sales thank-you.', state: salesAtIdentify },
+  { id: 'otp-new', section: 'identify', title: 'OTP to the entered mobile', caption: 'New identifier. After the code the application is created (contact_mobile_verified).', state: () => sent('id-new-cr') },
+  { id: 'otp-existing', section: 'identify', title: 'Application already in progress', caption: 'Code sent to the REGISTERED mobile ending •••123 — not to the newly entered number. Nothing about the application is shown before the code.', state: () => sent('id-incomplete') },
+  { id: 'status', section: 'identify', title: 'Submitted application → Application Progress', caption: 'After the registered-mobile code. Review, Contract and re-submission are never reopened.', state: () => otp(sent('id-submitted')) },
+  { id: 'login', section: 'identify', title: 'Existing merchant → login', caption: 'Account-mobile code, then the merchant login. No application is created.', state: () => otp(sent('id-live')) },
+  { id: 'out-sales', section: 'identify', title: 'Outcome: Sales lead', caption: 'Lead persisted with the verified contact. No CR, Nafath, banking or contract.', state: () => otp(submitIdentify(salesAtIdentify())) },
+  { id: 'out-not-owner', section: 'identify', title: 'Outcome: not an owner or manager', caption: 'Personalised reason; delegated onboarding is out of V1. No paid check was made.', state: () => otp(sent('id-cr-not-owner')) },
 
-  // Stage 3 — registered business
-  { id: 'cr-ok', section: 'cr', title: 'Business verification', caption: 'Government data retrieved once and reused. Registered activity matches the declared category.', state: () => runCrVerification(sc('act-match')) },
-  { id: 'cr-conflict', section: 'cr', title: 'Category ↔ activity conflict', caption: 'Does not pass silently: change the category, or continue and the team confirms (no automatic contract).', state: () => runCrVerification(sc('act-conflict')) },
-  { id: 'cr-persons', section: 'cr', title: 'Authorised person', caption: 'Individuals only, masked. Single selection.', state: () => loadPersons(withSaved(prefill('CR', 'persons'))) },
-  { id: 'cr-nafath', section: 'cr', title: 'Nafath request', caption: 'Identity and authority, not the contract. Two attempts per application, shared across people.', state: () => startNafath(sc('nafath-ok')) },
-  { id: 'cr-nafath-fail', section: 'cr', title: 'Nafath first failure', caption: 'Retry, or choose another person; the counter is not reset.', state: () => nafathResult(startNafath(sc('nafath-fail-once')), 'rejected') },
-  { id: 'out-temp', section: 'cr', title: 'Outcome: temporarily not eligible', caption: 'CR 3 months old or less (configurable).', state: () => runCrVerification(sc('gov-young')) },
-  { id: 'out-gov-manual', section: 'cr', title: 'Outcome: manual verification (government status)', caption: 'Expired CR or government violation: no automatic onboarding.', state: () => runCrVerification(sc('gov-expired')) },
+  // Registered business
+  { id: 'cr-persons', section: 'cr', title: 'Business verification: owner / manager', caption: 'CR data and owners / managers retrieved in the backend; no separate CR page. Delegates and companies are not offered.', state: () => runBusinessVerification(sc('cr-business')) },
+  { id: 'cr-nafath', section: 'cr', title: 'Send to Nafath', caption: 'The mobile ↔ National ID check runs first; then the Nafath request.', state: () => sc('mm-match') },
+  { id: 'cr-mismatch', section: 'cr', title: 'Mobile does not belong to the selected owner', caption: '"Use another mobile number" → OTP → check again. CR data and progress are kept.', state: () => sendToNafath(sc('mm-mismatch')) },
+  { id: 'cr-mismatch-entry', section: 'cr', title: 'Use another mobile number', caption: 'The new number receives its own code before the check runs again.', state: () => startMobileChange(sendToNafath(sc('mm-mismatch'))) },
+  { id: 'cr-waiting', section: 'cr', title: 'Nafath request', caption: 'Identity only — not the contract. Two attempts per application.', state: () => sendToNafath(sc('mm-match')) },
+  { id: 'out-paused', section: 'cr', title: 'Outcome: CR expired', caption: 'Saved and handed to Sales; no Refresh button and no further paid checks.', state: () => sc('cr-expired') },
 
-  // Stage 3 — Freelancer
-  { id: 'fl-nafath', section: 'fl', title: 'Freelancer Nafath', caption: 'National ID from Stage 2.', state: () => nafathResult(startNafath(otp(sc('resume-link'))), 'verified') },
-  { id: 'fl-certs', section: 'fl', title: 'Freelancer certificates', caption: 'Retrieved, never uploaded. Zero documents. Expired / already linked cannot be selected.', state: () => loadCertificates(sc('fl-certs-multi')) },
-  { id: 'out-fl-no-cert', section: 'fl', title: 'Outcome: no certificate found', caption: 'No upload fallback: "certificate required" lead.', state: () => loadCertificates(sc('fl-no-cert')) },
+  // Freelancer
+  { id: 'fl-nafath', section: 'fl', title: 'Freelancer: Nafath', caption: 'The certificate pre-check already ran in the backend; the applicant sees Nafath first.', state: () => runCertificatePrecheck(sc('fl-nafath')) },
+  { id: 'fl-certs', section: 'fl', title: 'Freelancer certificates', caption: 'Shown after Nafath; retrieved, never uploaded. Expired / already linked cannot be selected.', state: () => loadCertificates(sc('fl-certs-multi')) },
+  { id: 'out-fl-no-cert', section: 'fl', title: 'Outcome: no certificate found', caption: 'Stopped before Nafath: certificate-required lead (no Nafath cost).', state: () => runCertificatePrecheck(sc('fl-no-cert')) },
 
-  // Stage 4
-  { id: 'cr-business', section: 'banking', title: 'Business & Banking: registered business', caption: 'Stage-1 answers shown, not asked. IBAN ownership against the business; VAT retrieved.', state: () => finishIbanCheck(startIbanCheck(sc('iban-ok'))) },
-  { id: 'fl-bank-q', section: 'banking', title: 'Business & Banking: Freelancer', caption: 'Is the bank account linked to the Freelancer Certificate?', state: () => sc('fl-bank-yes') },
-  { id: 'fl-bank-no', section: 'banking', title: 'Freelancer: bank not linked', caption: 'IBAN skipped; journey continues; internal "banking setup required".', state: () => setBankLinked(sc('fl-bank-no'), 'no') },
+  // Business details
+  { id: 'details-cr', section: 'details', title: 'Business Details: registered business', caption: 'Online store and Google Maps branch link (channel Both). No IBAN, VAT or branch count.', state: () => sc('biz-cr-both') },
+  { id: 'details-fl', section: 'details', title: 'Business Details: Freelancer', caption: 'Website and the IBAN linked to the certificate (verified).', state: () => finishIbanCheck(startIbanCheck(setIban(setPresence(sc('biz-fl'), { websiteUrl: 'studio.example.com' }), 'SA0080000000123456784821'))) },
 
-  // Stage 5
-  { id: 'commercial', section: 'commercial', title: 'Commercial Offer', caption: 'Primary path: standard offer → Continue. 3 / 4 months included, 6 / 9 / 12 optional; the better-offer question is collapsed and optional. Synthetic values.', state: () => sc('com-6') },
-  { id: 'commercial-evidence', section: 'commercial', title: 'Commercial Offer: better offer expanded', caption: 'Shown only after "Yes, tell me more". Optional documents; onboarding continues with the standard offer while Commercial reviews.', state: () => sc('com-upload') },
+  // Commercial
+  { id: 'commercial', section: 'commercial', title: 'Your Standard Offer', caption: 'One rate from the verified category → Continue. No payment-plan selection.', state: () => sc('com-standard') },
+  { id: 'commercial-review', section: 'commercial', title: 'Rate review requested', caption: 'Collapsed until clicked; uploads only after "Request rate review"; never blocks.', state: () => sc('com-upload') },
 
-  // Stage 6
-  { id: 'review', section: 'review', title: 'Review', caption: 'Every section has Edit and returns here. Verification status shown.', state: () => sc('edit-website') },
-  { id: 'review-edit', section: 'review', title: 'Edit from Review', caption: 'Edit Know Your Business: Cancel restores; Save re-evaluates internally, no provider call.', state: () => startEdit(sc('edit-website'), 'kyb') },
+  // Review
+  { id: 'review', section: 'review', title: 'Review', caption: 'Verified sections locked; store presence and the rate review open a transactional edit.', state: () => sc('review') },
+  { id: 'review-edit', section: 'review', title: 'Edit store presence', caption: 'Draft until Save; Cancel restores everything; nothing invalidated.', state: () => startEdit(sc('review'), 'presence') },
 
-  // Stage 7 / 8
-  { id: 'contract', section: 'contract', title: 'Contract', caption: 'Contract only, one action: Agree & Submit records acceptance and submits. No checkbox, no second Submit. Commission and plans appear as Schedule 1.', state: () => sc('contract-accept') },
-  { id: 'out-submitted', section: 'contract', title: 'Outcome: submitted', caption: 'Shown immediately after Agree & Submit. Minimal; never shown as activated.', state: () => submitApplication(acceptContract(sc('contract-accept'))) },
-  { id: 'out-banking', section: 'contract', title: 'Outcome: submitted, banking pending', caption: 'Freelancer without a linked bank account.', state: () => submitApplication(acceptContract(sc('submit-banking'))) },
-  { id: 'out-manual', section: 'contract', title: 'Outcome: manual verification', caption: 'Nafath not verified: submitted without contract.', state: () => continueFromReview(sc('submit-manual')) },
-  { id: 'out-declined', section: 'contract', title: 'Outcome: contract declined', caption: 'Not submitted; resumable at the contract.', state: () => declineContract(sc('contract-decline')) },
+  // Contract / submit
+  { id: 'contract', section: 'contract', title: 'Contract', caption: 'One action: Agree & Submit. Standard commission only; no plans.', state: () => sc('contract') },
+  { id: 'out-submitted', section: 'contract', title: 'Outcome: submitted', caption: 'Shown immediately after Agree & Submit. Returning later opens Application Progress.', state: () => agreeAndSubmit(sc('contract')) },
+  { id: 'out-manual', section: 'contract', title: 'Outcome: manual verification', caption: 'Nafath not verified: submitted without a contract.', state: () => continueFromReview(sc('submit-manual')) },
+  { id: 'out-declined', section: 'contract', title: 'Outcome: contract declined', caption: 'Still a draft; resumable at the contract.', state: () => declineContract(sc('contract-decline')) },
+  { id: 'status-action', section: 'contract', title: 'Application Progress: action required', caption: 'Status only; the team contacts the merchant.', state: () => sc('status-action') },
 
   // Validation
-  { id: 'val-social', section: 'validation', title: 'Website validation', caption: 'Social-media and WhatsApp links are rejected as the merchant website (format check only).', state: () => sc('kyb-social-website'), errors: { websiteUrl: URL_ERROR_COPY.social } },
-  { id: 'val-maps', section: 'validation', title: 'Google Maps validation', caption: 'Only Google Maps location links are accepted for offline sellers.', state: () => sc('kyb-bad-maps'), errors: { mapsUrl: URL_ERROR_COPY['not-maps'] } },
-  { id: 'val-otp', section: 'validation', title: 'Incorrect SMS code', caption: 'Remaining attempts shown; expiry and exhaustion need a new code.', state: () => sc('x-otp-errors') },
-  { id: 'val-iban', section: 'validation', title: 'IBAN not matched', caption: 'Two attempts, then the applicant continues unverified (financial review).', state: () => finishIbanCheck(startIbanCheck(sc('iban-fail'))) }
+  { id: 'val-social', section: 'validation', title: 'Store link validation', caption: 'Social-media and WhatsApp links are not an online store (format check only).', state: () => setPresence(sc('biz-cr-both'), { websiteUrl: 'https://instagram.com/najd' }), errors: { websiteUrl: URL_ERROR_COPY.social } },
+  { id: 'val-maps', section: 'validation', title: 'Google Maps validation', caption: 'Only Google Maps links to the selling location are accepted.', state: () => setPresence(sc('biz-cr-both'), { mapsUrl: 'https://example.com/our-location' }), errors: { mapsUrl: URL_ERROR_COPY['not-maps'] } },
+  { id: 'val-otp', section: 'validation', title: 'Incorrect SMS code', caption: 'Remaining attempts shown; resends are bounded.', state: () => sc('otp-errors') },
+  { id: 'val-nafath', section: 'validation', title: 'Nafath first failure', caption: 'One attempt left.', state: () => nafathResult(sendToNafath(sc('nafath-fail')), 'rejected') }
 ];

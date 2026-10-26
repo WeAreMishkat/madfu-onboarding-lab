@@ -4,8 +4,8 @@ import { DecisionTable } from '@/experiences/proposed/DecisionTables';
 import { BoardLegend, BoardSvg, OpenItemsList } from '@/experiences/proposed/MasterBoards';
 import { DETAILED_BOARD, REUSE_NOTE, SIMPLE_BOARD, splitMap, type JourneyMap } from '@/experiences/proposed/model/boards';
 import { STAGES, UX_HANDOVER_NOTE } from '@/experiences/proposed/model/config';
-import { ASSUMPTIONS, DECISION_TABLES, OTHER_OPEN_POINTS } from '@/experiences/proposed/model/decisions';
-import { REQUIRED_COUNT, SCENARIOS } from '@/experiences/proposed/model/scenarios';
+import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS } from '@/experiences/proposed/model/decisions';
+import { SCENARIOS } from '@/experiences/proposed/model/scenarios';
 import { SNAPSHOTS, type Snapshot, type SnapshotSection } from '@/experiences/proposed/print/snapshots';
 import { ProposedFrame } from '@/experiences/proposed/ProposedPage';
 import { ProposedProvider } from '@/experiences/proposed/store';
@@ -19,7 +19,7 @@ import '@/styles/print.css';
  *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      2200 × 1150 px
  *   /print/board-detailed  Madfu_Proposed_Detailed_Master_Board.pdf    2000 × 1250 px pages
  */
-const SPEC_VERSION = 'KYB-first journey update, 23 Oct 2026 (supersedes the 15 Oct wireframe specification where they differ)';
+const SPEC_VERSION = 'Agreed product decisions, 27 Oct 2026 (supersede the 23 Oct KYB-first journey and the 15 Oct wireframe specification where they differ)';
 
 function usePrintReady(title: string) {
   useEffect(() => {
@@ -76,10 +76,10 @@ function ScreenPage({ snap, n, section }: { snap: Snapshot; n: number; section: 
 
 const SECTION_LABEL: Record<SnapshotSection, string> = {
   kyb: `Stage 1 · ${STAGES[0].label}`,
-  identify: `Stage 2 · ${STAGES[1].label} and resume`,
+  identify: `Stage 2 · ${STAGES[1].label}, existing records and routing`,
   cr: `Stage 3 · ${STAGES[2].label}: registered business`,
   fl: `Stage 3 · ${STAGES[2].label}: Freelancer`,
-  banking: `Stage 4 · ${STAGES[3].label}`,
+  details: `Stage 4 · ${STAGES[3].label}`,
   commercial: `Stage 5 · ${STAGES[4].label}`,
   review: `Stage 6 · ${STAGES[5].label}`,
   contract: `Stages 7–8 · ${STAGES[6].label} and ${STAGES[7].label}`,
@@ -103,7 +103,7 @@ export default function PrintWireframes() {
       <p className="pw-cover-sub">Wireframes · Proposed / Product Design</p>
       <dl className="pw-cover-meta">
         <div><dt>Source of truth</dt><dd>{SPEC_VERSION}</dd></div>
-        <div><dt>Prototype</dt><dd>Merchant Onboarding Lab · Madfu Proposed ({SCENARIOS.length} scenarios, {REQUIRED_COUNT} required)</dd></div>
+        <div><dt>Prototype</dt><dd>Merchant Onboarding Lab · Madfu Proposed ({SCENARIOS.length} scenarios)</dd></div>
         <div><dt>Data</dt><dd>Synthetic. Integrations are simulated. Not production behaviour.</dd></div>
       </dl>
       <span className="pw-hidden">{next()}</span>
@@ -112,13 +112,13 @@ export default function PrintWireframes() {
   pages.push(
     <Page key="principles" section="Introduction" title="Principles" n={next()}>
       <ol className="pw-principles">
-        <li><strong>Ask cheaply first, verify expensively later.</strong> Know Your Business decides eligibility before any CR, ID, mobile, OTP or paid check.</li>
-        <li><strong>Never ask twice.</strong> Stage-1 answers are linked to the application after OTP and shown, not re-asked.</li>
-        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused until their dependent data changes; resume normally costs one OTP.</li>
-        <li><strong>Do not lose a valid lead.</strong> Freelancers without a certificate and out-of-band registered businesses become leads; a missing bank link becomes a follow-up.</li>
-        <li><strong>Application, not account.</strong> The merchant account is set up only after approval.</li>
-        <li><strong>Commercial terms before the contract.</strong> Commission and payment plans are chosen in the Commercial Offer; the Contract only shows them.</li>
-        <li><strong>Internal reasons stay internal.</strong> Applicants see clean, generic outcomes; reason codes and flags are for the team.</li>
+        <li><strong>Ask cheaply first, verify expensively later.</strong> Five Page-1 answers decide eligibility before any identity, OTP or paid check; an internal existence check runs before the code.</li>
+        <li><strong>Access belongs to the registered mobile.</strong> Merchant entity, application and user are separate: an existing application or account opens only with a code to its registered mobile.</li>
+        <li><strong>Lifecycle first.</strong> A returning applicant is routed by status: draft → resume, submitted → Application Progress, live → login.</li>
+        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused; the Freelancer certificate is checked before Nafath; resume normally costs one OTP.</li>
+        <li><strong>Government data is authoritative.</strong> After retrieval, the CR / certificate activity decides the category and the price; verified sections are locked.</li>
+        <li><strong>Hard rules and risk are separate.</strong> A hard block stops with a personalised reason; CR age and other factors only score risk in the backend.</li>
+        <li><strong>Simple commercial step.</strong> The standard offer → Continue; plans are configured later; a better-rate review is optional and never blocks.</li>
       </ol>
     </Page>
   );
@@ -131,8 +131,13 @@ export default function PrintWireframes() {
   const snaps = (s: SnapshotSection) => SNAPSHOTS.filter((x) => x.section === s);
   const panel = (id: string) => DETAILED_BOARD.find((m) => m.id === id)!;
   const order: Array<[SnapshotSection, string[]]> = [
-    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr']], ['fl', ['fl']], ['banking', ['banking']], ['commercial', ['commercial']], ['review', ['review']], ['contract', ['contract']], ['validation', []]
+    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr', 'nafath']], ['fl', ['fl']], ['details', ['details']], ['commercial', ['commercial']], ['review', ['review']], ['contract', ['contract', 'reuse']], ['validation', []]
   ];
+  pages.push(
+    <Page key="confirmed" section="Introduction" title="Confirmed product decisions" caption="27 Oct 2026" n={next()}>
+      <ol className="pw-list pw-compact">{CONFIRMED_DECISIONS.map((d) => <li key={d}>{d}</li>)}</ol>
+    </Page>
+  );
   for (const [section, panels] of order) {
     for (const id of panels) {
       const m = panel(id);
@@ -168,10 +173,9 @@ export function PrintSimpleBoard() {
   return (
     <div className="pw">
       <style>{'@page { size: 2200px 1150px; margin: 0; }'}</style>
-      <Page section="Madfu Proposed · Merchant onboarding" title={SIMPLE_BOARD.title} caption={SIMPLE_BOARD.caption} n={1} w={2200} h={1150} footer="Madfu Proposed · Simple Master Board · generated from the Lab model">
+      <Page section="Madfu Proposed · Merchant onboarding" title={SIMPLE_BOARD.title} caption={SIMPLE_BOARD.caption} n={1} w={2200} h={1150} footer="Madfu Proposed · Master Board · generated from the Lab model">
         <BoardLegend />
-        <div className="pw-map pw-board"><BoardSvg map={SIMPLE_BOARD} /></div>
-        <p className="pw-board-note">{REUSE_NOTE}</p>
+        <div className="pw-map pw-board pw-board-simple"><BoardSvg map={SIMPLE_BOARD} /></div>
         <div className="pw-board-open"><h3 className="pw-sub">Open decisions (not confirmed rules)</h3><OpenItemsList compact /></div>
       </Page>
     </div>
@@ -182,23 +186,23 @@ export function PrintDetailedBoard() {
   usePrintReady('Madfu_Proposed_Detailed_Master_Board');
   const W = 2000;
   const H = 1250;
-  const foot = 'Madfu Proposed · Detailed Master Board · generated from the Lab model';
+  const foot = 'Madfu Proposed · Detailed Logic Board · generated from the Lab model';
   return (
     <div className="pw">
       <style>{`@page { size: ${W}px ${H}px; margin: 0; }`}</style>
-      <Page section="Madfu Proposed · Merchant onboarding" title="Detailed Master Board" caption="Every page, field group, backend decision, provider check, reused verification, manual route, outcome and open decision. One panel per page." n={1} w={W} h={H} footer={foot}>
+      <Page section="Madfu Proposed · Merchant onboarding" title="Detailed Logic Board" caption="Merchant-facing steps, backend / internal steps, external provider calls, decisions, reused results, outcomes and open decisions. One panel per area." n={1} w={W} h={H} footer={foot}>
         <BoardLegend />
         <ol className="pw-panels">{DETAILED_BOARD.map((m) => <li key={m.id}><strong>{m.title}</strong> — {m.caption}</li>)}</ol>
         <p className="pw-board-note">{REUSE_NOTE}</p>
       </Page>
       {DETAILED_BOARD.map((m, i) => (
-        <Page key={m.id} section="Detailed Master Board" title={m.title} caption={m.caption} n={i + 2} w={W} h={H} footer={foot}>
+        <Page key={m.id} section="Detailed Logic Board" title={m.title} caption={m.caption} n={i + 2} w={W} h={H} footer={foot}>
           <BoardLegend />
           <div className="pw-map pw-board"><BoardSvg map={m} /></div>
           {m.notes?.map((t) => <p key={t} className="pw-board-note">{t}</p>)}
         </Page>
       ))}
-      <Page section="Detailed Master Board" title="Open product and compliance decisions" caption="Product tasks and decisions. Not confirmed rules." n={DETAILED_BOARD.length + 2} w={W} h={H} footer={foot}>
+      <Page section="Detailed Logic Board" title="Open product and compliance decisions" caption="Product tasks and decisions. Not confirmed rules." n={DETAILED_BOARD.length + 2} w={W} h={H} footer={foot}>
         <div className="pw-open"><OpenItemsList /></div>
       </Page>
     </div>

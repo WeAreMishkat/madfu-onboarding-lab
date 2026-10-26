@@ -1,23 +1,25 @@
 import { useState } from 'react';
 import { wait } from '@/lib/timing';
-import { formatMobile, isSaudiMobile, isStructuralCr, isStructuralNationalId } from '../model/config';
-import { setIdentity, submitIdentify } from '../model/state';
+import { PREREQUISITE_QUESTION, formatMobile, isSaudiMobile, isStructuralCr, isStructuralNationalId } from '../model/config';
+import { asksPrerequisite, setIdentity, submitIdentify } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
-import { Alert, Field, StepHeader, TextInput, VerifyBadge } from '../ui/components';
+import { Alert, ChoiceGroup, Field, StepHeader, TextInput, VerifyBadge } from '../ui/components';
 import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 
-type Errors = Partial<Record<'identifier' | 'mobile', string>>;
+type Errors = Partial<Record<'identifier' | 'mobile' | 'prerequisite', string>>;
 
 /**
- * Stage 2 — Identify & Verify. Only applicants who passed Stage 1 reach this page. Validation here is
- * structural; duplicate / existing checks run in the backend and their result shows after the code.
+ * Page 2 — identifier, mobile and (self-onboarding only) one prerequisite declaration. Validation is
+ * structural. On submit the backend checks its OWN records first (no provider): an existing
+ * application or account gets the code on its registered mobile, never on the number typed here.
  */
 export function IdentifyStep() {
   const { state, apply, previewErrors } = useProposed();
-  const { identity, kyb, returnTo, id, identityCheck } = state.app;
+  const { identity, kyb, eligibility, throttled } = state.app;
   const cr = kyb.kind === 'CR';
-  const editing = !!id && !!returnTo;
+  const asks = asksPrerequisite(state.app);
+  const lead = eligibility?.result === 'SALES_LEAD';
   const [errors, setErrors] = useState<Errors>(previewErrors as Errors);
   const [checking, setChecking] = useState(false);
   const titleRef = useStepFocus<HTMLHeadingElement>();
@@ -34,41 +36,54 @@ export function IdentifyStep() {
     else if (!cr && !isStructuralNationalId(identity.identifier)) e.identifier = 'Enter a 10-digit National ID number that starts with 1.';
     if (!identity.mobile) e.mobile = 'Enter your mobile number.';
     else if (!isSaudiMobile(identity.mobile)) e.mobile = 'Enter a Saudi mobile number: 9 digits starting with 5.';
+    if (asks && !identity.prerequisite) e.prerequisite = 'Choose Yes or No.';
     setErrors(e);
     if (Object.keys(e).length) return;
     setChecking(true);
-    await wait(700);
+    await wait(600);
     setChecking(false);
     apply(submitIdentify);
   };
 
+  const title = lead ? (kyb.kind === 'FL_NO_CERT' ? 'Leave your details' : 'Our Sales team will help you get started') : 'Good news: you can apply online';
+  const description = lead
+    ? `Enter your ${cr ? 'Commercial Registration' : 'National ID'} and mobile number. We verify the number with a code; nothing else is needed.`
+    : cr ? 'Enter your Commercial Registration and your mobile number.' : 'Enter your National ID and your mobile number.';
+
   return (
     <section className="mb-card mb-card-narrow" aria-labelledby="mb-step-title">
-      <StepHeader
-        eyebrow={editing ? 'Edit' : stageEyebrow('identify')}
-        title={editing ? 'Identification' : 'Good news: you can apply online'}
-        description={cr ? 'Enter your Commercial Registration and the mobile number we should verify.' : 'Enter your National ID and the mobile number we should verify.'}
-        titleRef={titleRef}
-      />
-      {!editing && state.app.eligibility && <div className="mb-eligible-chip"><VerifyBadge state="verified">Eligible for online onboarding</VerifyBadge></div>}
+      <StepHeader eyebrow={stageEyebrow('identify')} title={title} description={description} titleRef={titleRef} />
+      {!lead && <div className="mb-eligible-chip"><VerifyBadge state="verified">Eligible for online onboarding</VerifyBadge></div>}
       <form className="mb-form" noValidate onSubmit={(ev) => { ev.preventDefault(); void next(); }}>
         <Field label={cr ? 'Commercial Registration (Unified Number)' : 'National ID Number'} hint={cr ? '10 digits, starts with 7.' : '10 digits, starts with 1.'} error={errors.identifier}>
-          {({ id: fid, describedBy, invalid }) => (
-            <TextInput id={fid} inputMode="numeric" autoComplete="off" placeholder={cr ? '7XXXXXXXXX' : '1XXXXXXXXX'} value={identity.identifier} maxLength={10}
+          {({ id, describedBy, invalid }) => (
+            <TextInput id={id} inputMode="numeric" autoComplete="off" placeholder={cr ? '7XXXXXXXXX' : '1XXXXXXXXX'} value={identity.identifier} maxLength={10}
               aria-describedby={describedBy} invalid={invalid} onChange={(e) => set({ identifier: e.target.value.replace(/\D/g, '') })} />
           )}
         </Field>
         <Field label="Mobile number" hint="We send a verification code to this number." error={errors.mobile}>
-          {({ id: fid, describedBy, invalid }) => (
-            <TextInput id={fid} prefix="+966" inputMode="numeric" autoComplete="tel-national" placeholder="5X XXX XXXX" value={formatMobile(identity.mobile)}
+          {({ id, describedBy, invalid }) => (
+            <TextInput id={id} prefix="+966" inputMode="numeric" autoComplete="tel-national" placeholder="5X XXX XXXX" value={formatMobile(identity.mobile)}
               aria-describedby={describedBy} invalid={invalid} onChange={(e) => set({ mobile: e.target.value.replace(/\D/g, '').slice(0, 9) })} />
           )}
         </Field>
-        {editing && identityCheck && identityCheck !== 'new' && (
-          <Alert tone="error" title="This number can’t be used">It already belongs to another Madfu application or account.</Alert>
+        {asks && (
+          <ChoiceGroup<'yes' | 'no'>
+            legend={PREREQUISITE_QUESTION[cr ? 'CR' : 'FL_CERT']!}
+            name="prerequisite"
+            value={identity.prerequisite}
+            columns={2}
+            compact
+            hint={cr ? 'Online self-onboarding is available to the owners and managers registered on the CR.' : 'The bank account used for payouts must be linked to your Freelancer Certificate.'}
+            options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+            onChange={(v) => set({ prerequisite: v })}
+            error={errors.prerequisite}
+          />
         )}
-        {editing && <p className="mb-small mb-muted">Changing the {cr ? 'CR' : 'National ID'} repeats the checks that depend on it. Changing the mobile needs a new code.</p>}
-        <StepNav onNext={() => void next()} loading={checking} loadingLabel="Checking…" nextLabel="Send code" />
+        {throttled && (
+          <Alert tone="warning" title="Too many requests">For your security, please wait a few minutes and try again. We may ask you to confirm you are not a robot.</Alert>
+        )}
+        <StepNav onNext={() => void next()} loading={checking} loadingLabel="Checking…" nextLabel="Send code" nextDisabled={throttled && state.sim.rateLimited} />
       </form>
     </section>
   );

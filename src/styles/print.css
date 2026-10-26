@@ -49,3 +49,6 @@
 .pw-open .jm-open-list { font-size: 17px; gap: 12px; }
 .pw-panels { font-size: 18px; line-height: 1.5; padding-left: 26px; display: grid; gap: 12px; margin-top: 24px; max-width: 1700px; }
 .pw-map .jm-label-detail { font-size: 11px; }
+.pw-list.pw-compact li { font-size: 15px; line-height: 1.45; margin-bottom: 5px; }
+.pw-board-open .jm-open-list.is-compact { display: block; columns: 4; column-gap: 28px; max-width: none; font-size: 12px; } .pw-board-open .jm-open-list.is-compact li { break-inside: avoid; margin-bottom: 3px; }
+.pw-board-simple .jm-svg { max-height: 700px; }

@@ -1,5 +1,5 @@
 import { OpenItemsList } from './MasterBoards';
-import { ASSUMPTIONS, DECISION_TABLES, OTHER_OPEN_POINTS, type Table } from './model/decisions';
+import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS, type Table } from './model/decisions';
 
 export function DecisionTable({ table }: { table: Table }) {
   return (
@@ -16,11 +16,19 @@ export function DecisionTable({ table }: { table: Table }) {
   );
 }
 
+export function ConfirmedDecisionsList() {
+  return <ol className="dt-list dt-confirmed">{CONFIRMED_DECISIONS.map((d) => <li key={d}>{d}</li>)}</ol>;
+}
+
 export function DecisionTables() {
   return (
     <div className="dt-page">
-      <section className="dt">
-        <h2 className="dt-title">Open product and compliance decisions</h2>
+      <section className="dt" aria-label="Confirmed product decisions">
+        <h2 className="dt-title">Confirmed product decisions (2026-10-27)</h2>
+        <ConfirmedDecisionsList />
+      </section>
+      <section className="dt" aria-label="Open decisions">
+        <h2 className="dt-title">Open decisions (not confirmed rules)</h2>
         <OpenItemsList />
         <p className="dt-note">Other open points:</p>
         <ul className="dt-list">{OTHER_OPEN_POINTS.map((a) => <li key={a}>{a}</li>)}</ul>

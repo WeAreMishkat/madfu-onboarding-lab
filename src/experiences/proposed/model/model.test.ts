@@ -1,506 +1,534 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIVITY_MAPPING, reconcile } from './activity';
-import { RULE_FLAGS, STAGES } from './config';
+import { deriveCategory } from './activity';
+import { LIMITS, RULE_FLAGS, STAGES } from './config';
 import { evaluateEligibility } from './eligibility';
 import { GOV_RULES, evaluateGovernment } from './government';
 import { DEMO, DEMO_SMS_CODE, demoIban } from './mock';
-import { BASE_PLANS, OPTIONAL_PLANS, buildOffer, priceFor } from './pricing';
+import { buildOffer, pricingSub } from './pricing';
+import { HARD_BLOCKS, RISK_CONFIG, assessRisk } from './risk';
 import { SCENARIOS, scenarioById } from './scenarios';
 import {
-  acceptContract, confirmOffer, continueAfterNafath, continueFromReview, contractEligible, declineContract, finishIbanCheck, firstIncomplete,
-  initialState, leaveSession, loadCertificates, loadPersons, nafathResult, openContinueLink, prefill, reopenContract, runCrVerification,
-  sendContinueLink, setBankLinked, setIban, setIdentity, setKyb, startEdit, startIbanCheck, startNafath, submitApplication, submitBusiness,
-  submitIdentify, submitKyb, submitLead, toggleOptionalPlan, verifyOtp, withSaved, cancelEdit, confirmCertificate, selectPerson, addEvidence,
-  agreeAndSubmit, setBetterInterest, failUpload
+  addEvidence, agreeAndSubmit, cancelEdit, confirmCertificate, confirmOffer, continueAfterNafath, continueFromReview, continueToNafath, declineContract,
+  existenceFor, finishIbanCheck, firstIncomplete, goLive, initialSim, initialState, leaveSession, loadCertificates, nafathResult, openContinueLink, prefill,
+  reopenContract, requestRateReview, resendOtp, routeFor, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendContinueLink,
+  sendToNafath, setIban, setIdentity, setKyb, setPresence, setReviewStatus, startEdit, startIbanCheck, startMobileChange, submitBusiness, submitIdentify,
+  submitKyb, submitMobileChange, verifyOtp, withSaved
 } from './state';
-import type { ProposedState } from './types';
+import type { Kyb, ProposedState, Sim } from './types';
 import { validateMapsUrl, validateWebsite } from './urls';
-import { FRESHNESS_DAYS, callsSince, reusable } from './verifications';
+import { callsSince } from './verifications';
 
-const build = (id: string) => scenarioById(id)!.build();
-const calls = (s: ProposedState, from: number) => callsSince(s.app, from).map((e) => e.check);
 const otp = (s: ProposedState) => verifyOtp(s, DEMO_SMS_CODE);
+const calls = (s: ProposedState, from = 0) => callsSince(s.app, from).map((e) => e.check);
+const paid = (s: ProposedState, from = 0) => calls(s, from).filter((c) => c !== 'OTP');
+const simWith = (patch: Partial<Sim> = {}, cr: Partial<Sim['cr']> = {}): Sim => { const b = initialSim(); return { ...b, ...patch, cr: { ...b.cr, ...cr } }; };
 
-/** KYB -> identify -> OTP for a fresh CR applicant. */
-function newCrApplication(): ProposedState {
-  let s = setKyb(initialState(), { kind: 'CR', group: 'food', sub: 'food-cafe', revenue: 'SELF_SERVICE_BAND', channel: 'online', websiteUrl: 'https://najd.example.com' });
-  s = submitKyb(s);
-  s = setIdentity(s, { identifier: DEMO.cr, mobile: DEMO.mobile });
-  return otp(submitIdentify(s));
+const CR_KYB: Kyb = { kind: 'CR', group: 'food', sub: 'food-cafe', revenue: 'SELF_SERVICE_BAND', channel: 'both' };
+const FL_KYB: Kyb = { kind: 'FL_CERT', group: 'services', sub: 'services-design', revenue: 'SELF_SERVICE_BAND', channel: 'online' };
+
+/** Page 1 → Page 2 → OTP on a fresh browser state. */
+function apply(kyb: Kyb, who: { identifier?: string; mobile?: string; prerequisite?: 'yes' | 'no' } = {}, sim: Sim = initialSim(), base?: ProposedState): ProposedState {
+  let s: ProposedState = base ? { ...leaveSession(base), sim } : { ...initialState(), sim };
+  s = submitKyb(setKyb(s, kyb));
+  s = setIdentity(s, { identifier: who.identifier ?? (kyb.kind === 'CR' ? DEMO.cr : DEMO.nationalId), mobile: who.mobile ?? DEMO.mobile, prerequisite: who.prerequisite ?? 'yes' });
+  return submitIdentify(s);
 }
 
-describe('Stage 1 — Know Your Business comes first', () => {
-  it('the journey starts on KYB, before any identity, mobile or OTP', () => {
+describe('Page 1 — Know Your Business', () => {
+  it('starts on KYB and asks only type, category, subcategory, revenue and channel', () => {
     const s = initialState();
     expect(s.app.step).toBe('kyb');
     expect(STAGES[0].label).toBe('Know Your Business');
-    expect(s.app.identity.identifier).toBe('');
-    expect(s.app.ledger).toEqual([]);
+    expect(Object.keys(s.app.kyb).sort()).toEqual(['channel', 'group', 'kind', 'revenue', 'sub']);
   });
 
-  it('eligibility is internal: no external call or OTP before identity', () => {
-    const s = submitKyb(build('kyb-cr-online'));
-    expect(s.app.step).toBe('identify');
-    expect(s.app.ledger).toEqual([]);
+  it('all five answers are required; no website or Maps link is needed', () => {
+    const missing = submitKyb(setKyb(initialState(), { ...CR_KYB, channel: null }));
+    expect(missing.app.step).toBe('kyb');
+    const ok = submitKyb(setKyb(initialState(), CR_KYB));
+    expect(ok.app.step).toBe('identify');
+    expect(paid(ok)).toEqual([]);
+    expect(calls(ok)).toEqual([]);
   });
 
-  it('routes eligible, blocked, CR-required, offline-not-allowed, paused and lead', () => {
-    const e = (kind: 'CR' | 'FL_CERT' | 'FL_NO_CERT', sub: string, revenue = 'SELF_SERVICE_BAND' as const, channel = 'online' as const) => evaluateEligibility({ kind, sub, revenue, channel: channel as 'online' | 'offline' | 'both' });
-    expect(e('CR', 'retail-fashion').result).toBe('ELIGIBLE');
+  it('routes self-onboarding, Sales lead and blocked; categories are allowed or blocked only', () => {
+    const e = (kind: Kyb['kind'], sub: string, revenue: Kyb['revenue'] = 'SELF_SERVICE_BAND', channel: Kyb['channel'] = 'online') => evaluateEligibility({ kind: kind!, sub, revenue: revenue!, channel: channel! });
+    expect(e('CR', 'retail-fashion').result).toBe('SELF_ONBOARDING');
+    expect(e('CR', 'retail-fashion', 'ABOVE_20M').result).toBe('SALES_LEAD');
     expect(e('CR', 'fixture-blocked').reason).toBe('CATEGORY_NOT_SUPPORTED');
-    expect(e('CR', 'retail-jewelry').reason).toBe('REGULATORY_RESTRICTION');
-    expect(e('FL_CERT', 'retail-jewelry').reason).toBe('ACTIVITY_REQUIRES_CR');
-    expect(evaluateEligibility({ kind: 'FL_CERT', sub: 'retail-electronics', revenue: 'SELF_SERVICE_BAND', channel: 'offline' }).reason).toBe('CHANNEL_NOT_SUPPORTED');
-    expect(evaluateEligibility({ kind: 'FL_CERT', sub: 'retail-electronics', revenue: 'SELF_SERVICE_BAND', channel: 'online' }).result).toBe('ELIGIBLE');
-    expect(e('CR', 'fixture-paused').result).toBe('TEMPORARILY_NOT_ELIGIBLE');
-    expect(e('CR', 'fixture-manual').result).toBe('MANUAL_REVIEW');
-    expect(e('FL_NO_CERT', 'services-design').reason).toBe('FL_CERT_REQUIRED');
-    expect(evaluateEligibility({ kind: 'CR', sub: 'retail-fashion', revenue: 'ABOVE_20M', channel: 'online' }).reason).toBe('REVENUE_ABOVE_BAND');
-    expect(evaluateEligibility({ kind: 'FL_CERT', sub: 'services-design', revenue: 'ABOVE_20M', channel: 'online' }).result).toBe('ELIGIBLE');
+    expect(e('FL_CERT', 'food-cafe').reason).toBe('ACTIVITY_REQUIRES_CR');
+    expect(e('FL_CERT', 'retail-electronics', 'SELF_SERVICE_BAND', 'offline').reason).toBe('CHANNEL_NOT_SUPPORTED');
+    expect(e('FL_NO_CERT', 'services-design').result).toBe('SALES_LEAD');
+    // Gold & jewellery is prohibited for both types: a Freelancer is not told to get a CR for it.
+    expect(e('FL_CERT', 'retail-jewelry').reason).toBe('REGULATORY_RESTRICTION');
   });
 
-  it('blocked category stops before any external cost', () => {
-    const s = submitKyb(build('kyb-blocked'));
-    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
+  it('a blocked category stops on Page 1 with a personalised reason and no external call', () => {
+    const s = submitKyb(setKyb(initialState(), { ...CR_KYB, group: 'fixture', sub: 'fixture-blocked' }));
+    expect(s.app.outcome).toBe('BLOCKED');
     expect(s.app.outcomeReason).toBe('CATEGORY_NOT_SUPPORTED');
-    expect(s.app.ledger).toEqual([]);
-  });
-
-  it('Freelancer without certificate becomes a lead, never a verification journey', () => {
-    let s = submitKyb(build('kyb-fl-no-cert'));
-    expect(s.app.step).toBe('lead');
-    s = otp(submitLead({ ...s, app: { ...s.app, lead: { name: 'Sara', mobile: DEMO.mobile } } }));
-    expect(s.app.outcome).toBe('FL_CERT_REQUIRED');
-    expect(s.app.status).toBe('LEAD_FL_CERT_REQUIRED');
-    expect(s.backend.leads).toHaveLength(1);
-    expect(s.backend.leads[0].kyb.sub).toBe('services-design');
-    expect(calls(s, 0)).toEqual(['OTP']);
-  });
-
-  it('website and Google Maps validation is configurable and rejects social / WhatsApp / non-Maps links', () => {
-    expect(validateWebsite('https://najd.example.com')).toBeNull();
-    expect(validateWebsite('my-store')).toBe('format');
-    expect(validateWebsite('https://instagram.com/najd')).toBe('social');
-    expect(validateWebsite('https://wa.me/966500000000')).toBe('whatsapp');
-    expect(validateMapsUrl('https://maps.google.com/?q=1,2')).toBeNull();
-    expect(validateMapsUrl('https://www.google.com/maps/place/x')).toBeNull();
-    expect(validateMapsUrl('https://maps.app.goo.gl/abc')).toBeNull();
-    expect(validateMapsUrl('https://example.com/location')).toBe('not-maps');
-    expect(validateMapsUrl('https://instagram.com/najd')).toBe('not-maps');
+    expect(calls(s)).toEqual([]);
   });
 });
 
-describe('Stage 2 — identity, OTP and the KYB link', () => {
-  it('links the Stage-1 snapshot to the application only after OTP', () => {
-    let s = submitKyb(build('kyb-cr-online'));
-    s = submitIdentify(setIdentity(s, { identifier: DEMO.cr, mobile: DEMO.mobile }));
+describe('Page 2 — identifier, mobile, prerequisite; existence check before OTP', () => {
+  it('a new identifier: internal existence check, then OTP to the ENTERED mobile; nothing paid', () => {
+    const s = apply(CR_KYB);
+    expect(s.app.step).toBe('otp');
+    expect(s.app.existence).toBe('new');
+    expect(s.app.otp).toMatchObject({ purpose: 'application', to: DEMO.mobile });
+    expect(s.app.ledger.some((l) => l.check === 'EXISTENCE' && l.kind === 'internal')).toBe(true);
+    expect(paid(s)).toEqual([]);
     expect(s.app.id).toBeNull();
-    expect(s.app.kybSnapshot).toBeNull();
-    s = otp(s);
-    expect(s.app.id).toMatch(/^APP-/);
-    const snap = s.app.kybSnapshot!;
-    expect(snap.sub).toBe('retail-fashion');
-    expect(snap.channel).toBe('online');
-    expect(snap.websiteUrl).toBe('https://najdboutique.example.com');
-    expect(snap.eligibility.result).toBe('ELIGIBLE');
-    expect(snap.eligibility.ruleset).toMatch(/KYB-RULES/);
-    expect(snap.linkedAt).toBeTruthy();
-    expect(s.backend.qualifications[snap.qualificationId].linkedTo).toBe(s.app.id);
-    expect(s.app.step).toBe('cr-verify');
   });
 
-  it('duplicate CR / National ID under another mobile creates no application', () => {
-    for (const id of ['id-dup-cr', 'id-dup-nid']) {
-      const s = otp(submitIdentify(build(id)));
-      expect(s.app.outcome).toBe('DUPLICATE_IDENTITY');
-      expect(s.app.id).toBeNull();
+  it('the application is created only after OTP; contact mobile verified ≠ authorised-person mobile verified', () => {
+    const s = otp(apply(CR_KYB));
+    expect(s.app.id).toMatch(/^APP-/);
+    expect(s.app.kybSnapshot?.sub).toBe('food-cafe');
+    expect(s.app.contactMobileVerified).toBe(true);
+    expect(s.app.authorizedMobileVerified).toBe(false);
+    expect(s.app.registeredMobile).toBe(DEMO.mobile);
+    expect(s.app.status).toBe('DRAFT');
+    expect(s.app.step).toBe('persons');
+  });
+
+  it('CR owner / manager = No: blocked after OTP with a personalised reason, before any paid check', () => {
+    const s = otp(apply(CR_KYB, { prerequisite: 'no' }));
+    expect(s.app.outcome).toBe('BLOCKED');
+    expect(s.app.outcomeReason).toBe('NOT_OWNER_MANAGER');
+    expect(paid(s)).toEqual([]);
+  });
+
+  it('Freelancer IBAN linked = No: blocked with the linkage instruction, before any paid check', () => {
+    const s = otp(apply(FL_KYB, { prerequisite: 'no' }));
+    expect(s.app.outcomeReason).toBe('FL_IBAN_NOT_LINKED');
+    expect(paid(s)).toEqual([]);
+  });
+
+  it('the identify page is throttled after the configured number of submissions (rate limit)', () => {
+    let s = submitKyb(setKyb(initialState(), CR_KYB));
+    s = setIdentity(s, { identifier: DEMO.cr, mobile: DEMO.mobile, prerequisite: 'yes' });
+    for (let i = 0; i < LIMITS.identifyChecksPerSession; i++) s = { ...submitIdentify(s), app: { ...submitIdentify(s).app, step: 'identify' } };
+    expect(submitIdentify(s).app.throttled).toBe(true);
+    expect(submitIdentify({ ...s, sim: { ...s.sim, rateLimited: true }, app: { ...s.app, identifyChecks: 0 } }).app.throttled).toBe(true);
+  });
+});
+
+describe('Sales lead', () => {
+  it('CR above the configured threshold: OTP, lead persisted, Sales thank-you; no CR / Nafath / banking / contract', () => {
+    const s = otp(apply({ ...CR_KYB, revenue: 'ABOVE_20M' }));
+    expect(s.app.outcome).toBe('SALES_LEAD');
+    expect(s.app.status).toBe('SALES_LEAD');
+    expect(s.backend.leads).toHaveLength(1);
+    expect(s.backend.leads[0]).toMatchObject({ identifier: DEMO.cr, mobile: DEMO.mobile, reason: 'REVENUE_ABOVE_BAND' });
+    expect(paid(s)).toEqual([]);
+    expect(routeFor(s.app)).toBe('outcome');
+  });
+
+  it('Freelancer without certificate: lead with its KYB answers, no verification', () => {
+    const s = otp(apply({ ...FL_KYB, kind: 'FL_NO_CERT' }));
+    expect(s.app.outcome).toBe('FL_CERT_REQUIRED');
+    expect(s.backend.leads[0].kyb.sub).toBe('services-design');
+    expect(paid(s)).toEqual([]);
+  });
+});
+
+describe('Existing records: registered-mobile OTP, status-aware routing', () => {
+  const draft = () => withSaved(prefill('CR', 'business'));
+  const submitted = () => withSaved(prefill('CR', 'status'));
+
+  it('incomplete application + a DIFFERENT entered mobile: the code goes to the stored mobile only', () => {
+    const s = apply(CR_KYB, { mobile: DEMO.otherMobile }, initialSim(), draft());
+    expect(s.app.existence).toBe('incomplete');
+    expect(s.app.otp).toMatchObject({ purpose: 'registered', to: DEMO.mobile });
+    expect(s.backend.sms.at(-1)!.to).toBe(DEMO.mobile);
+    expect(s.backend.sms.some((m) => m.to === DEMO.otherMobile)).toBe(false);
+    // Without the code nothing is exposed: no application is open in this session.
+    expect(s.app.id).toBeNull();
+  });
+
+  it('registered-mobile OTP resumes the first unfinished stage; nothing is re-verified', () => {
+    const base = draft();
+    const before = base.backend.applications[base.app.id!].ledger.length;
+    const s = otp(apply(CR_KYB, { mobile: DEMO.otherMobile }, initialSim(), base));
+    expect(s.app.id).toBe(base.app.id);
+    expect(s.app.step).toBe('business');
+    expect(paid(s, before)).toEqual([]);
+    expect(s.app.ledger.filter((l) => l.kind === 'reuse').map((l) => l.check)).toEqual(expect.arrayContaining(['CR_DATA', 'PERSONS', 'NAFATH']));
+    expect(s.app.registeredMobile).toBe(DEMO.mobile);
+  });
+
+  it('a failed registered-mobile OTP never opens the application and creates no other one', () => {
+    const base = draft();
+    let s = apply(CR_KYB, { mobile: DEMO.otherMobile }, initialSim(), base);
+    for (let i = 0; i < LIMITS.otpAttempts; i++) s = verifyOtp(s, '111111');
+    expect(s.app.otp.status).toBe('exhausted');
+    expect(s.app.id).toBeNull();
+    expect(Object.keys(s.backend.applications)).toEqual([base.app.id]);
+  });
+
+  it('submitted application: OTP opens Application Progress, never Review or Contract', () => {
+    const base = submitted();
+    const s = otp(apply(CR_KYB, {}, initialSim(), base));
+    expect(s.app.step).toBe('status');
+    expect(routeFor({ ...s.app, status: 'UNDER_REVIEW' })).toBe('status');
+    expect(continueFromReview(s).app.step).toBe('status');
+    expect(agreeAndSubmit({ ...s, app: { ...s.app, step: 'contract' } }).app.status).toBe('SUBMITTED');
+    expect(reopenContract(s).app.step).toBe('status');
+  });
+
+  it('live merchant: OTP to the account mobile, then login; no application is created', () => {
+    const s0 = { ...initialState(), backend: { ...initialState().backend, merchants: { [DEMO.cr]: { mobile: DEMO.registeredMobile } } } };
+    let s = apply(CR_KYB, { mobile: DEMO.mobile }, initialSim(), s0);
+    expect(s.app.existence).toBe('live');
+    expect(s.app.otp.to).toBe(DEMO.registeredMobile);
+    s = otp(s);
+    expect(s.app.step).toBe('login');
+    expect(Object.keys(s.backend.applications)).toEqual([]);
+  });
+
+  it('forced existence from the Prototype Controls uses a stored mobile ending 123', () => {
+    for (const existence of ['incomplete', 'submitted', 'live'] as const) {
+      const s = apply(CR_KYB, {}, simWith({ existence }));
+      expect(s.app.existence).toBe(existence);
+      expect(s.app.otp.to).toBe(DEMO.registeredMobile);
+      expect(otp(s).app.step).toBe(existence === 'incomplete' ? 'business' : existence === 'submitted' ? 'status' : 'login');
     }
   });
 
-  it('existing incomplete application (same identity + mobile) resumes at its first incomplete screen', () => {
-    const s = otp(submitIdentify(build('id-existing')));
-    expect(s.app.resumed).toBe(true);
-    expect(s.app.step).toBe('business');
+  it('existence is an internal lookup: Sales leads and blocked records do not stop a new attempt', () => {
+    const lead = otp(apply({ ...CR_KYB, revenue: 'ABOVE_20M' }));
+    expect(existenceFor({ ...leaveSession(lead), app: { ...leaveSession(lead).app, identity: { identifier: DEMO.cr, mobile: DEMO.mobile, prerequisite: 'yes' } } }).existence).toBe('new');
   });
 });
 
-describe('Resume: Continue link -> OTP -> last valid stage, no repeated paid checks', () => {
-  it('the link opens the OTP screen; the application is not exposed without the code', () => {
-    const s = build('resume-cr');
-    expect(s.app.step).toBe('otp');
-    expect(s.app.otp.purpose).toBe('resume');
-    expect(s.app.sessionMobile).toBe('');
-  });
-
-  it('wrong code keeps the application closed', () => {
-    const s = verifyOtp(build('resume-cr'), '000000');
-    expect(s.app.step).toBe('otp');
-    expect(s.app.sessionMobile).toBe('');
-  });
-
-  it.each([
-    ['resume-link', 'nafath'],
-    ['resume-cr', 'persons'],
-    ['resume-nafath', 'business'],
-    ['resume-iban', 'commercial'],
-    ['iban-resume', 'review'],
-    ['nafath-resume', 'certificates']
-  ])('%s resumes at %s', (id, step) => {
-    const s = otp(build(id));
-    expect(s.app.step).toBe(step);
-  });
-
-  it('ordinary resume costs one OTP and nothing else (CR, Nafath, IBAN reused)', () => {
-    const before = build('iban-resume');
-    const mark = before.app.ledger.length - 1; // the resume OTP was just sent
-    const s = otp(before);
-    expect(calls(s, mark)).toEqual(['OTP']);
-    const reused = s.app.ledger.slice(mark).filter((e) => e.kind === 'reuse').map((e) => e.check);
-    expect(reused).toEqual(expect.arrayContaining(['CR_DATA', 'PERSONS', 'NAFATH', 'IBAN']));
-  });
-
-  it('CR not re-fetched, Nafath not repeated, IBAN not repeated after resume even when the screens are opened again', () => {
-    let s = otp(build('iban-resume'));
-    const mark = s.app.ledger.length;
-    s = runCrVerification(s);
-    s = loadPersons(s);
-    s = startNafath(s);
-    expect(s.app.nafath.status).toBe('verified');
-    s = startIbanCheck(s);
-    expect(s.app.business.ibanStatus).toBe('verified');
-    expect(calls(s, mark)).toEqual([]);
-  });
-
-  it('Freelancer certificates are not re-fetched on ordinary resume', () => {
-    let s = otp(build('resume-iban'.replace('resume-iban', 'nafath-resume')));
-    s = loadCertificates(s);
-    const mark = s.app.ledger.length;
-    s = { ...s, app: { ...s.app } };
-    s = loadCertificates(s);
-    expect(calls(s, mark)).toEqual([]);
-  });
-
-  it('Save & exit sends a Continue link to the verified mobile; reopening goes through OTP', () => {
-    let s = newCrApplication();
-    s = sendContinueLink(s);
-    const sms = s.backend.sms.find((m) => m.kind === 'continue-link')!;
-    expect(sms.to).toBe(DEMO.mobile);
-    s = openContinueLink(leaveSession(s), sms.token!);
-    expect(s.app.step).toBe('otp');
-    s = otp(s);
-    expect(s.app.step).toBe('cr-verify');
-  });
-
-  it('a freshness policy, when defined, makes an expired result not reusable', () => {
-    const app = prefill('CR', 'review');
-    const rec = app.verifications.CR_DATA!;
-    expect(reusable(app, 'CR_DATA', rec.fingerprint)).not.toBeNull();
-    expect(rec.expiresAt).toBeNull();
-    expect(FRESHNESS_DAYS.CR_DATA).toBeNull();
-    const expired = { ...app, verifications: { ...app.verifications, CR_DATA: { ...rec, expiresAt: '2026-01-01T00:00:00.000Z' } } };
-    expect(reusable(expired, 'CR_DATA', rec.fingerprint)).toBeNull();
+describe('OTP limits (not the only abuse control, but bounded)', () => {
+  it('resend never restores the budget: after the last code, attempts end in a locked state', () => {
+    let s = apply(CR_KYB);
+    let wrong = 0;
+    for (let r = 0; r <= LIMITS.otpResends; r++) {
+      for (let i = 0; i < LIMITS.otpAttempts; i++) { s = verifyOtp(s, '111111'); wrong++; }
+      if (r < LIMITS.otpResends) s = resendOtp(s);
+    }
+    expect(s.app.otp.status).toBe('locked');
+    expect(wrong).toBe(LIMITS.otpAttempts * (LIMITS.otpResends + 1));
+    expect(verifyOtp(s, DEMO_SMS_CODE).app.id).toBeNull();
+    expect(resendOtp(s).app.otp.status).toBe('locked');
+    expect(s.backend.sms.filter((m) => m.kind === 'otp')).toHaveLength(LIMITS.otpResends + 1);
   });
 });
 
-describe('Stage 3 — government data and activity reconciliation', () => {
-  it('CR age 3 months or less is temporarily not eligible (threshold configurable)', () => {
-    expect(GOV_RULES.minCrAgeMonths).toBe(3);
-    const s = runCrVerification(build('gov-young'));
-    expect(s.app.outcome).toBe('TEMPORARILY_NOT_ELIGIBLE');
-    expect(s.app.outcomeReason).toBe('CR_TOO_RECENT');
+describe('Registered business: CR data, government rules, category, risk', () => {
+  it('CR verification only after the new-application OTP; CR data and owners / managers retrieved once', () => {
+    let s = otp(apply(CR_KYB));
+    s = runBusinessVerification(s);
+    expect(paid(s)).toEqual(['CR_DATA', 'PERSONS']);
+    expect(s.app.persons.list.filter((p) => p.role === 'delegate')).toHaveLength(1);
+    const from = s.app.ledger.length;
+    s = runBusinessVerification(s);
+    expect(paid(s, from)).toEqual([]);
   });
 
-  it.each([
-    ['gov-expired', 'MANUAL_VERIFICATION', 'CR_EXPIRED'],
-    ['gov-suspended', 'NOT_ELIGIBLE', 'CR_SUSPENDED'],
-    ['gov-violation', 'MANUAL_VERIFICATION', 'CR_GOVERNMENT_VIOLATION']
-  ])('%s -> %s', (id, outcome, reason) => {
-    const s = runCrVerification(build(id));
-    expect(s.app.outcome).toBe(outcome);
+  it('owners / managers only; a CR with none blocks (the declaration is not confirmed)', () => {
+    const s = runBusinessVerification(otp(apply(CR_KYB, {}, simWith({ persons: 'none' }))));
+    expect(s.app.outcomeReason).toBe('NO_OWNER_MANAGER_ON_CR');
+  });
+
+  it.each([['EXPIRED', 'CR_EXPIRED'], ['SUSPENDED', 'CR_SUSPENDED']] as const)('CR %s: saved + Sales recovery; no people / Nafath / other paid call', (status, reason) => {
+    const s = runBusinessVerification(otp(apply(CR_KYB, {}, simWith({}, { status }))));
+    expect(s.app.status).toBe('PAUSED_CR');
+    expect(s.app.outcome).toBe('PAUSED_CR');
     expect(s.app.outcomeReason).toBe(reason);
+    expect(s.app.flags).toContain('SALES_FOLLOW_UP');
+    expect(paid(s)).toEqual(['CR_DATA']);
+    expect(s.backend.applications[s.app.id!].status).toBe('PAUSED_CR');
   });
 
-  it('extra documents and National Address problems are internal flags; the journey continues', () => {
-    const docs = runCrVerification(build('gov-docs-later'));
-    expect(docs.app.flags).toContain('ADDITIONAL_DOCUMENTS_REQUIRED');
-    expect(docs.app.outcome).toBeNull();
-    const addr = runCrVerification(build('gov-address'));
-    expect(addr.app.flags).toContain('NATIONAL_ADDRESS_MISSING');
-    expect(addr.app.outcome).toBeNull();
+  it('a paused application re-entered by the merchant shows the same message; only Sales re-checks the CR', () => {
+    const paused = runBusinessVerification(otp(apply(CR_KYB, {}, simWith({}, { status: 'EXPIRED' }))));
+    const back = otp(apply(CR_KYB, {}, paused.sim, paused));
+    expect(back.app.step).toBe('outcome');
+    expect(back.app.outcome).toBe('PAUSED_CR');
+    const from = back.app.ledger.length;
+    expect(paid(back, from)).toEqual([]);
+    const recovered = runBusinessVerification(salesRecoverCr(back));
+    expect(recovered.app.status).toBe('DRAFT');
+    expect(paid(recovered, from)).toEqual(['CR_DATA', 'PERSONS']);
   });
 
-  it('government rules are evaluated from configuration', () => {
-    const base = prefill('CR', 'persons').cr.record!;
-    expect(evaluateGovernment({ ...base, status: 'SUSPENDED' }).action).toBe('not_eligible');
-    expect(evaluateGovernment({ ...base, issuedMonthsAgo: 3 }).action).toBe('temporarily_not_eligible');
-    expect(evaluateGovernment({ ...base, issuedMonthsAgo: 4 }).action).toBe('continue');
+  it('CR age is a risk attribute, never a rejection', () => {
+    const young = runBusinessVerification(otp(apply(CR_KYB, {}, simWith({}, { ageMonths: 2 }))));
+    expect(young.app.status).toBe('DRAFT');
+    expect(young.app.persons.status).toBe('loaded');
+    expect(young.app.risk?.factors.find((f) => f.factor === 'CR age')?.points).toBe(RISK_CONFIG.crAge[0].points);
+    const old = runBusinessVerification(otp(apply(CR_KYB)));
+    expect(young.app.risk!.score).toBeGreaterThan(old.app.risk!.score);
+    expect(Object.keys(GOV_RULES)).not.toContain('minCrAgeMonths');
+    expect(evaluateGovernment({ ...young.app.cr.record!, ageMonths: 1 }).action).toBe('continue');
   });
 
-  it.each([
-    ['act-match', 'MATCH', 'continue'],
-    ['act-compatible', 'COMPATIBLE', 'continue'],
-    ['act-ambiguous', 'AMBIGUOUS', 'manual_review'],
-    ['act-conflict', 'CONFLICT', 'clarify']
-  ])('%s -> %s / %s', (id, outcome, action) => {
-    const s = runCrVerification(build(id));
-    expect(s.app.activity?.outcome).toBe(outcome);
-    expect(s.app.activity?.action).toBe(action);
+  it('hard blocks and risk are separate: no hard-block reason is ever produced by the risk score', () => {
+    expect(HARD_BLOCKS.map((h) => h.reason)).toEqual(expect.arrayContaining(['CR_EXPIRED', 'CR_SUSPENDED', 'NOT_OWNER_MANAGER', 'FL_IBAN_NOT_LINKED']));
+    const risk = assessRisk({ ...prefill('CR', 'review'), cr: { ...prefill('CR', 'review').cr, record: { ...prefill('CR', 'review').cr.record!, ageMonths: 1, entity: 'NON_SAUDI', nationalAddress: 'MISSING' } } });
+    expect(risk.level).toBe('HIGH');
   });
 
-  it('a regulated registered activity stops even if the declared category is allowed (Fashion vs Gold)', () => {
-    expect(reconcile('CR', 'retail-fashion', 'ACT-4777').action).toBe('stop');
-    const s = runCrVerification(build('x-regulated'));
-    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
-    expect(s.app.outcomeReason).toBe('ACTIVITY_REGULATED');
+  it('multiple CR activities are supported; government activity is authoritative and prices the offer', () => {
+    // Declared café, registered: management consultancy (primary) + general trade.
+    const s = runBusinessVerification(otp(apply(CR_KYB, {}, simWith({}, { activities: ['ACT-7020', 'ACT-4719'] }))));
+    expect(s.app.cr.record!.activities).toHaveLength(2);
+    expect(s.app.categoryCheck).toMatchObject({ declaredSub: 'food-cafe', verifiedSub: 'services-consulting', outcome: 'RECLASSIFIED' });
+    expect(pricingSub(s.app)).toBe('services-consulting');
+    expect(buildOffer(s.app).standardRate).toBe(7.5);
+    expect(s.app.flags).toContain('CATEGORY_RECLASSIFIED');
   });
 
-  it('unmapped activity is a manual-review flag', () => {
-    expect(reconcile('CR', 'services-design', 'ACT-9999').outcome).toBe('UNMAPPED');
-    expect(ACTIVITY_MAPPING.length).toBeGreaterThan(5);
+  it('a declared category matching ANY activity is confirmed; a regulated activity blocks whatever was declared', () => {
+    expect(deriveCategory('CR', 'food-cafe', 'CR', [{ code: 'ACT-4719', primary: true }, { code: 'ACT-5610', primary: false }]).check.outcome).toBe('CONFIRMED');
+    expect(deriveCategory('CR', 'retail-fashion', 'CR', [{ code: 'ACT-4771', primary: true }, { code: 'ACT-4777', primary: false }]).block).toBe('ACTIVITY_REGULATED');
+    expect(deriveCategory('CR', 'food-cafe', 'CR', [{ code: 'ACT-9999', primary: true }]).check.outcome).toBe('UNMAPPED');
   });
 
-  it('a conflict blocks automatic continuation until the applicant chooses', () => {
-    const s = runCrVerification(build('act-conflict'));
-    expect(firstIncomplete(s.app)).toBe('cr-verify');
-  });
-});
-
-describe('Nafath', () => {
-  it('first failure keeps the shared counter; second failure moves CR to the manual route without contract', () => {
-    let s = startNafath(build('nafath-max'));
-    s = nafathResult(s, 'rejected');
-    expect(s.app.nafath.status).toBe('failed');
-    s = selectPerson(s, 'p2');
-    s = nafathResult(startNafath(s), 'timeout');
-    expect(s.app.nafath.status).toBe('exhausted');
-    s = continueAfterNafath(s);
-    expect(s.app.step).toBe('business');
-    expect(contractEligible(s.app)).toBe(false);
-  });
-
-  it('a technical failure does not use an attempt (rule flag)', () => {
-    expect(RULE_FLAGS.nafathTechnicalFailureCounts).toBe(false);
-    const s = nafathResult(startNafath(build('x-nafath-technical')), 'technical');
-    expect(s.app.nafath.failures).toBe(0);
+  it('after verification the declared category cannot be edited: no bypass of the government activity', () => {
+    const s = withSaved(prefill('CR', 'review'));
+    expect(setKyb(s, { group: 'services', sub: 'services-consulting' }).app.kyb.sub).toBe('food-cafe');
+    expect(startEdit(s, 'applicant')).toBe(s);
+    expect(startEdit(s, 'verified')).toBe(s);
+    expect(submitKyb(s)).toBe(s);
   });
 });
 
-describe('Freelancer verification and banking', () => {
-  it('no certificate found -> certificate-required lead, no upload fallback', () => {
-    const s = loadCertificates(build('fl-no-cert'));
+describe('Mobile ↔ National ID before Nafath', () => {
+  const atNafath = (sim: Sim) => continueToNafath(selectPerson(runBusinessVerification(otp(apply(CR_KYB, {}, sim))), 'p1'));
+
+  it('match → Nafath request; the authorised-person mobile is now verified', () => {
+    const s = sendToNafath(atNafath(initialSim()));
+    expect(paid(s)).toEqual(['CR_DATA', 'PERSONS', 'MOBILE_MATCH', 'NAFATH']);
+    expect(s.app.authorizedMobileVerified).toBe(true);
+    expect(s.app.nafath.status).toBe('waiting');
+  });
+
+  it('mismatch blocks Nafath; the new mobile needs an OTP; a new match continues; CR progress is kept', () => {
+    let s = sendToNafath(atNafath(simWith({ mobileMatch: ['mismatch', 'match'] })));
+    expect(s.app.mobileMatch.status).toBe('mismatch');
+    expect(calls(s)).not.toContain('NAFATH');
+    const crCalls = paid(s).filter((c) => c === 'CR_DATA' || c === 'PERSONS').length;
+    s = submitMobileChange(startMobileChange(s), DEMO.otherMobile);
+    expect(s.app.step).toBe('otp');
+    expect(s.app.otp).toMatchObject({ purpose: 'mobile-change', to: DEMO.otherMobile });
+    expect(s.app.registeredMobile).toBe(DEMO.mobile);
+    s = otp(s);
+    expect(s.app.registeredMobile).toBe(DEMO.otherMobile);
+    expect(s.app.authorizedMobileVerified).toBe(true);
+    expect(s.app.nafath.status).toBe('waiting');
+    expect(s.app.persons.selectedId).toBe('p1');
+    expect(s.app.cr.record).not.toBeNull();
+    expect(paid(s).filter((c) => c === 'CR_DATA' || c === 'PERSONS').length).toBe(crCalls);
+  });
+
+  it('still a mismatch after the correction: verification paused, nothing lost, no Nafath call', () => {
+    let s = sendToNafath(atNafath(simWith({ mobileMatch: ['mismatch', 'mismatch'] })));
+    s = otp(submitMobileChange(startMobileChange(s), DEMO.otherMobile));
+    expect(s.app.mobileMatch.status).toBe('blocked');
+    expect(s.app.flags).toContain('MOBILE_OWNERSHIP_UNVERIFIED');
+    expect(calls(s)).not.toContain('NAFATH');
+    expect(s.app.status).toBe('DRAFT');
+    expect(sendToNafath(s).app.ledger.length).toBe(s.app.ledger.length);
+  });
+
+  it('the Freelancer gets the same check on their own National ID', () => {
+    let s = otp(apply(FL_KYB, {}, simWith({ mobileMatch: ['mismatch'] })));
+    s = sendToNafath(runCertificatePrecheck(s));
+    expect(s.app.mobileMatch.status).toBe('mismatch');
+    expect(calls(s)).not.toContain('NAFATH');
+  });
+});
+
+describe('Freelancer: certificate pre-check before Nafath (cost order)', () => {
+  it('rule flag on: certificate existence is checked before any Nafath call', () => {
+    expect(RULE_FLAGS.flCertificatePrecheckBeforeNafath).toBe(true);
+    let s = otp(apply(FL_KYB));
+    expect(sendToNafath(s).app.ledger.length).toBe(s.app.ledger.length); // Nafath waits for the pre-check
+    s = sendToNafath(runCertificatePrecheck(s));
+    expect(paid(s)).toEqual(['FL_CERTS', 'MOBILE_MATCH', 'NAFATH']);
+  });
+
+  it('no certificate → certificate-required lead, and NO Nafath call', () => {
+    const s = runCertificatePrecheck(otp(apply(FL_KYB, {}, simWith({ certificates: 'none' }))));
     expect(s.app.outcome).toBe('FL_CERT_REQUIRED');
-    expect(s.app.status).toBe('LEAD_FL_CERT_NOT_FOUND');
+    expect(s.app.outcomeReason).toBe('FL_CERT_NOT_FOUND');
+    expect(paid(s)).toEqual(['FL_CERTS']);
+    expect(s.backend.leads).toHaveLength(1);
   });
 
-  it('a certificate whose activity requires a CR stops', () => {
-    let s = loadCertificates(build('x-fl-mismatch'));
+  it('certificate details stay hidden until Nafath; afterwards they are shown without a new call', () => {
+    let s = runCertificatePrecheck(otp(apply(FL_KYB)));
+    expect(loadCertificates(s).app.certs.status).toBe('idle');
+    s = continueAfterNafath(nafathResult(sendToNafath(s), 'verified'));
+    expect(s.app.step).toBe('certificates');
+    const from = s.app.ledger.length;
+    s = loadCertificates(s);
+    expect(s.app.certs.status).toBe('loaded');
+    expect(paid(s, from)).toEqual([]);
+  });
+
+  it('the confirmed certificate activity prices the offer; a CR-only activity blocks', () => {
+    const ok = prefill('FL_CERT', 'commercial');
+    expect(ok.categoryCheck).toMatchObject({ source: 'CERTIFICATE', verifiedSub: 'services-design' });
+    let s = runCertificatePrecheck(otp(apply(FL_KYB, {}, simWith({ certificates: 'mismatch' }))));
+    s = loadCertificates(continueAfterNafath(nafathResult(sendToNafath(s), 'verified')));
     s = confirmCertificate(s);
-    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
+    expect(s.app.outcomeReason).toBe('ACTIVITY_REQUIRES_CR');
   });
+});
 
-  it('bank linked = No skips IBAN and continues with "banking setup required"', () => {
-    let s = setBankLinked(build('fl-bank-no'), 'no');
-    expect(s.app.business.ibanStatus).toBe('skipped');
-    expect(s.app.flags).toContain('BANKING_SETUP_REQUIRED');
-    s = submitBusiness({ ...s, app: { ...s.app, business: { ...s.app.business, vat: 'no' } } });
+describe('Business Details', () => {
+  it('URLs are conditional on the Page-1 channel; CR has no IBAN, VAT or branch count', () => {
+    const cr = withSaved(prefill('CR', 'business'));
+    expect(Object.keys(cr.app.business)).not.toContain('vat');
+    expect(Object.keys(cr.app.business)).not.toContain('branches');
+    expect(submitBusiness(cr).app.step).toBe('business'); // both channel: website + Maps required
+    const s = submitBusiness(setPresence(cr, { websiteUrl: 'najdroastery.example.com', mapsUrl: 'https://maps.app.goo.gl/abc' }));
     expect(s.app.step).toBe('commercial');
+    expect(paid(s, cr.app.ledger.length)).toEqual([]);
   });
 
-  it('bank linked = Yes verifies the IBAN against the individual + certificate', () => {
-    let s = setBankLinked(build('fl-bank-yes'), 'yes');
+  it('Freelancer IBAN is verified (linkage); a mismatch twice needs another IBAN; technical errors do not count', () => {
+    let s = withSaved(prefill('FL_CERT', 'business'), simWith({ iban: ['technical', 'mismatch', 'mismatch', 'verified'] }));
+    s = setPresence(s, { websiteUrl: 'https://studio.example.com' });
     s = setIban(s, demoIban('80', '1111'));
     s = finishIbanCheck(startIbanCheck(s));
+    expect(s.app.business).toMatchObject({ ibanStatus: 'failed', ibanFailures: 0 });
+    s = finishIbanCheck(startIbanCheck(finishIbanCheck(startIbanCheck(s))));
+    expect(s.app.business.ibanStatus).toBe('failed_final');
+    expect(startIbanCheck(s)).toBe(s);
+    expect(submitBusiness(s).app.step).toBe('business');
+    s = finishIbanCheck(startIbanCheck(setIban(s, demoIban('80', '2222'))));
     expect(s.app.business.ibanStatus).toBe('verified');
-    expect(s.app.verifications.IBAN?.fingerprint).toContain('nid:');
+    expect(submitBusiness(s).app.step).toBe('commercial');
   });
 
-  it('the Freelancer IBAN contract gate stays a configurable rule flag', () => {
-    expect(RULE_FLAGS.flLinkedIbanRequiredBeforeContract).toBe(false);
-    const s = build('submit-banking');
-    expect(contractEligible(s.app)).toBe(true);
-    const done = submitApplication(acceptContract(s));
-    expect(done.app.outcome).toBe('SUBMITTED_BANKING_PENDING');
+  it('website / Maps validation: scheme optional, Saudi and Arabic domains, Google Maps in any country domain', () => {
+    expect(validateWebsite('yourstore.com')).toBeNull();
+    expect(validateWebsite('https://store.salla.sa/najd')).toBeNull();
+    expect(validateWebsite('https://متجر.السعودية')).toBeNull();
+    expect(validateWebsite('my-store')).toBe('format');
+    expect(validateWebsite('https://instagram.com/najd')).toBe('social');
+    expect(validateWebsite('https://wa.me/966500000000')).toBe('whatsapp');
+    expect(validateWebsite('https://bit.ly/x')).toBe('shortener');
+    for (const ok of ['https://maps.google.com/?q=1,2', 'https://maps.app.goo.gl/abc', 'https://www.google.com.sa/maps/place/x', 'https://maps.google.com.sa/?q=1', 'goo.gl/maps/abc']) expect(validateMapsUrl(ok), ok).toBeNull();
+    for (const bad of ['https://example.com/loc', 'https://goo.gl/forms/x', 'https://www.google.com/search?q=cafe']) expect(validateMapsUrl(bad), bad).toBe('not-maps');
   });
 });
 
 describe('Commercial Offer', () => {
-  it('standard commission comes from the category, not from declared revenue', () => {
-    const a = buildOffer('food-cafe', []);
-    expect(a.standardRate).toBe(priceFor('food-cafe').standard);
-    expect(buildOffer('food-cafe', []).standardRate).toBe(buildOffer('food-cafe', []).standardRate);
+  it('standard offer only: no plans; the rate comes from the verified category', () => {
+    const s = confirmOffer(withSaved(prefill('CR', 'commercial')));
+    expect(Object.keys(s.app.commercial.agreed!)).toEqual(['pricingVersion', 'pricingSub', 'standardRate', 'at']);
+    expect(s.app.step).toBe('review');
   });
 
-  it('3 and 4 months are always included; 6 / 9 / 12 are optional multi-select', () => {
-    expect(BASE_PLANS).toEqual([3, 4]);
-    expect(OPTIONAL_PLANS).toEqual([6, 9, 12]);
-    let s = build('com-base');
-    s = toggleOptionalPlan(toggleOptionalPlan(s, 6), 9);
-    s = toggleOptionalPlan(s, 9);
+  it('rate review interest is kept without any file; files add evidence; the standard offer never waits', () => {
+    let s = requestRateReview(withSaved(prefill('CR', 'commercial')));
+    expect(s.app.flags).toContain('COMMERCIAL_RATE_REVIEW_REQUESTED');
     s = confirmOffer(s);
-    const plans = s.app.commercial.agreed!.plans.map((p) => p.tenure);
-    expect(plans).toEqual([3, 4, 6]);
-    expect(s.app.commercial.agreed!.plans.filter((p) => p.included).map((p) => p.tenure)).toEqual([3, 4]);
-  });
-
-  it('optional pricing evidence never blocks; uploading flags a Commercial review and keeps the standard rate', () => {
-    const skipped = confirmOffer(build('com-skip'));
-    expect(skipped.app.step).toBe('review');
-    expect(skipped.app.flags).not.toContain('COMMERCIAL_PRICING_REVIEW');
-    const uploaded = confirmOffer(addEvidence(build('com-skip'), 'doc-b'));
-    expect(uploaded.app.step).toBe('review');
-    expect(uploaded.app.flags).toContain('COMMERCIAL_PRICING_REVIEW');
-    expect(uploaded.app.commercial.agreed!.standardRate).toBe(priceFor('food-cafe').standard);
+    expect(s.app.commercial.reviewRequested).toBe(true);
+    expect(s.app.step).toBe('review');
+    expect(addEvidence(s, 'doc-a').app.commercial.evidence).toEqual(['doc-a']);
   });
 });
 
-describe('Review and dependency invalidation', () => {
-  it('edit website: no external check is invalidated or repeated', () => {
-    let s = build('edit-website');
-    const mark = s.app.ledger.length;
-    s = startEdit(s, 'kyb');
-    s = setKyb(s, { websiteUrl: 'https://new.example.com' });
-    s = submitKyb(s);
-    expect(s.app.step).toBe('review');
-    expect(s.app.kybSnapshot!.websiteUrl).toBe('https://new.example.com');
-    expect(s.app.ledger.slice(mark).filter((e) => e.kind === 'invalidate' || e.kind === 'call')).toEqual([]);
+describe('Review: locked sections, transactional edit', () => {
+  it('only store presence and the commercial review can be edited; Cancel restores everything', () => {
+    const s = withSaved(prefill('CR', 'review'));
+    let e = startEdit(s, 'presence');
+    expect(e.app.step).toBe('business');
+    e = setPresence(e, { websiteUrl: 'https://changed.example.com' });
+    const c = cancelEdit(e);
+    expect(c.app.business.websiteUrl).toBe(s.app.business.websiteUrl);
+    expect(c.app.step).toBe('review');
+    expect(c.app.verifications).toEqual(s.app.verifications);
+    expect(c.app.ledger).toEqual(s.app.ledger);
   });
 
-  it('edit IBAN: only the IBAN verification is invalidated', () => {
-    let s = build('edit-iban');
-    const mark = s.app.ledger.length;
-    s = setIban(startEdit(s, 'banking'), demoIban('20', '7777'));
-    const inv = s.app.ledger.slice(mark).filter((e) => e.kind === 'invalidate').map((e) => e.check);
-    expect(inv).toEqual(['IBAN']);
-    expect(s.app.verifications.CR_DATA?.status).toBe('valid');
-    expect(s.app.verifications.NAFATH?.status).toBe('valid');
-    s = finishIbanCheck(startIbanCheck(s));
-    expect(calls(s, mark)).toEqual(['IBAN']);
+  it('Save applies the edit and invalidates nothing', () => {
+    const s = withSaved(prefill('CR', 'review'));
+    const saved = submitBusiness(setPresence(startEdit(s, 'presence'), { websiteUrl: 'https://changed.example.com' }));
+    expect(saved.app.step).toBe('review');
+    expect(saved.app.business.websiteUrl).toBe('https://changed.example.com');
+    expect(saved.app.editBaseline).toBeNull();
+    expect(saved.app.ledger.filter((l) => l.kind === 'invalidate')).toEqual([]);
   });
 
-  it('edit category: eligibility + reconciliation re-run on the stored activity, no provider call', () => {
-    let s = build('edit-category');
-    const mark = s.app.ledger.length;
-    s = setKyb(startEdit(s, 'kyb'), { group: 'food', sub: 'food-homemade' });
-    s = submitKyb(s);
-    expect(s.app.activity?.declaredSub).toBe('food-homemade');
-    expect(s.app.activity?.outcome).toBe('COMPATIBLE');
-    expect(calls(s, mark)).toEqual([]);
+  it('an owner / manager cannot be changed after Nafath', () => {
+    const s = withSaved(prefill('CR', 'review'));
+    expect(selectPerson(s, 'p2').app.persons.selectedId).toBe('p1');
+  });
+});
+
+describe('Contract, submission and Application Progress', () => {
+  it('Agree & Submit submits; the submitted application never reopens Review or Contract', () => {
+    let s = agreeAndSubmit(withSaved(prefill('CR', 'contract')));
+    expect(s.app.outcome).toBe('SUBMITTED');
+    expect(s.app.status).toBe('SUBMITTED');
+    expect(routeFor(s.app)).toBe('status');
+    expect(Object.keys(s.backend.tokens)).toEqual([]);
+    s = setReviewStatus(s, 'APPROVED');
+    expect(s.app.step).toBe('status');
+    s = goLive(s);
+    expect(s.app.status).toBe('LIVE');
+    expect(otp(apply(CR_KYB, {}, initialSim(), s)).app.step).toBe('login');
   });
 
-  it('edit CR: CR data, people, Nafath and IBAN are invalidated; the journey resumes at Business Verification', () => {
-    let s = build('edit-identity');
-    const mark = s.app.ledger.length;
-    s = setIdentity(startEdit(s, 'identification'), { identifier: '7000000202' });
-    s = submitIdentify(s);
-    const inv = s.app.ledger.slice(mark).filter((e) => e.kind === 'invalidate').map((e) => e.check);
-    expect(inv.sort()).toEqual(['CR_DATA', 'IBAN', 'NAFATH', 'PERSONS']);
-    expect(s.app.step).toBe('cr-verify');
-    expect(s.app.commercial.agreed).not.toBeNull();
+  it('declined contract stays a DRAFT and is resumable at the contract', () => {
+    const s = declineContract(withSaved(prefill('CR', 'contract')));
+    expect(s.app.status).toBe('DRAFT');
+    expect(firstIncomplete(s.app)).toBe('contract');
+    expect(reopenContract(s).app.step).toBe('contract');
   });
 
-  it('edit mobile: a new OTP, nothing else', () => {
-    let s = build('x-edit-mobile');
-    const mark = s.app.ledger.length;
-    s = submitIdentify(setIdentity(startEdit(s, 'identification'), { mobile: DEMO.otherMobile }));
-    expect(s.app.step).toBe('otp');
+  it('Nafath not verified: Review submits for manual verification without a contract', () => {
+    const base = prefill('CR', 'review');
+    const s = continueFromReview(withSaved({ ...base, nafath: { ...base.nafath, status: 'exhausted', verifiedFor: null }, verifications: { ...base.verifications, NAFATH: undefined } }));
+    expect(s.app.outcome).toBe('SUBMITTED_MANUAL');
+    expect(s.app.status).toBe('SUBMITTED');
+  });
+});
+
+describe('Continue link resume', () => {
+  it('Save & exit → link → OTP to the registered mobile → first unfinished stage; ordinary resume costs one OTP', () => {
+    let s = sendContinueLink(withSaved(prefill('CR', 'commercial')));
+    const token = Object.keys(s.backend.tokens)[0];
+    s = openContinueLink(leaveSession(s), token);
+    expect(s.app.otp).toMatchObject({ purpose: 'resume', to: DEMO.mobile });
+    const from = s.app.ledger.length - 1;
     s = otp(s);
-    expect(s.app.step).toBe('review');
-    expect(s.app.verifiedMobile).toBe(DEMO.otherMobile);
-    expect(calls(s, mark)).toEqual(['OTP']);
+    expect(s.app.step).toBe('commercial');
+    expect(calls(s, from)).toEqual(['OTP']);
   });
 
-  it('cancel restores the previous values', () => {
-    let s = build('edit-website');
-    const before = s.app.kyb.websiteUrl;
-    s = cancelEdit(setKyb(startEdit(s, 'kyb'), { websiteUrl: 'https://changed.example.com' }));
-    expect(s.app.kyb.websiteUrl).toBe(before);
-    expect(s.app.step).toBe('review');
-  });
-});
-
-describe('Contract and outcomes', () => {
-  it('contract accepted -> submitted; declined -> resumable', () => {
-    expect(submitApplication(acceptContract(build('contract-accept'))).app.outcome).toBe('SUBMITTED');
-    const d = declineContract(build('contract-decline'));
-    expect(d.app.outcome).toBe('CONTRACT_DECLINED');
-    expect(firstIncomplete(d.app)).toBe('contract');
-    expect(reopenContract(d).app.step).toBe('contract');
-  });
-
-  it('Nafath not verified -> Review submits for manual verification', () => {
-    const s = continueFromReview(build('submit-manual'));
-    expect(s.app.outcome).toBe('MANUAL_VERIFICATION');
-  });
-
-  it('Sales lead outcome after contact + OTP', () => {
-    let s = submitKyb(build('submit-lead'));
-    expect(s.app.step).toBe('lead');
-    s = otp(submitLead({ ...s, app: { ...s.app, lead: { name: 'Faisal', mobile: DEMO.mobile } } }));
-    expect(s.app.outcome).toBe('SALES_LEAD');
-    expect(s.app.status).toBe('LEAD_HIGH_REVENUE');
-  });
-});
-
-describe('Agree & Submit and the optional better offer', () => {
-  it('one contract action records acceptance and submits (no separate submit step)', () => {
-    const s = agreeAndSubmit(build('contract-accept'));
-    expect(s.app.contract.status).toBe('accepted');
-    expect(s.app.outcome).toBe('SUBMITTED');
-    expect(s.app.step).toBe('outcome');
-    expect(agreeAndSubmit(build('submit-banking')).app.outcome).toBe('SUBMITTED_BANKING_PENDING');
-  });
-
-  it('better offer: collapsed (null) by default, "Not now" clears files, uploads keep the standard rate', () => {
-    const s = build('com-standard');
-    expect(s.app.commercial.interest).toBeNull();
-    const withFile = addEvidence(setBetterInterest(s, 'yes'), 'doc-a');
-    expect(withFile.app.commercial.evidence).toEqual(['doc-a']);
-    expect(setBetterInterest(withFile, 'no').app.commercial.evidence).toEqual([]);
-    const failed = failUpload(setBetterInterest(s, 'yes'), 'doc-a');
-    expect(failed.app.commercial.uploadError).toBe('doc-a');
-    expect(confirmOffer(failed).app.step).toBe('review');
-    expect(confirmOffer(withFile).app.commercial.agreed!.standardRate).toBe(priceFor('food-cafe').standard);
-  });
-});
-
-describe('end-to-end CR journey on the model', () => {
-  it('KYB -> OTP -> CR -> people -> Nafath -> banking -> offer -> review -> contract -> submitted', () => {
-    let s = newCrApplication();
-    s = runCrVerification(s);
-    s = { ...s, app: { ...s.app, step: 'persons' } };
-    s = loadPersons(s);
-    s = selectPerson(s, 'p1');
-    s = startNafath(s);
-    s = nafathResult(s, 'verified');
-    s = continueAfterNafath(s);
-    s = setIban(s, demoIban('10', '4821'));
-    s = finishIbanCheck(startIbanCheck(s));
-    s = submitBusiness({ ...s, app: { ...s.app, business: { ...s.app.business, vat: 'no' } } });
-    s = confirmOffer(toggleOptionalPlan(s, 12));
-    s = continueFromReview(s);
-    expect(s.app.step).toBe('contract');
-    s = submitApplication(acceptContract(s));
-    expect(s.app.outcome).toBe('SUBMITTED');
-    const paid = s.app.ledger.filter((e) => e.kind === 'call').map((e) => e.check);
-    expect(paid).toEqual(['CR_DATA', 'PERSONS', 'NAFATH', 'IBAN']);
+  it('provider outage retries reset on resume (no permanent dead end)', () => {
+    let s = otp(apply(CR_KYB, {}, simWith({}, { result: 'unavailable' })));
+    for (let i = 0; i <= LIMITS.providerRetries; i++) s = runBusinessVerification(s);
+    expect(s.app.cr.tries).toBe(LIMITS.providerRetries + 1);
+    s = sendContinueLink(s);
+    s = otp(openContinueLink(leaveSession(s), Object.keys(s.backend.tokens)[0]));
+    expect(s.app.cr).toMatchObject({ status: 'idle', tries: 0 });
+    expect(s.app.step).toBe('persons');
   });
 });
 
 describe('scenarios', () => {
-  it('60 numbered scenarios, all build', () => {
-    const numbered = SCENARIOS.filter((x) => x.n).map((x) => x.n);
-    expect(numbered.sort((a, b) => a! - b!)).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
-    for (const sc of SCENARIOS) {
-      const s = sc.build();
-      expect(s.app.step, sc.id).toBeTruthy();
-      expect(s.scenarioId, sc.id).toBe(sc.id);
-    }
+  it('every catalogue scenario builds', () => {
+    for (const sc of SCENARIOS) expect(() => sc.build(), sc.id).not.toThrow();
+    expect(scenarioById('cr-happy')).not.toBeNull();
   });
 
   it('saved states survive a JSON round trip (localStorage persistence)', () => {
-    const s = build('iban-resume');
-    const copy = JSON.parse(JSON.stringify(s)) as ProposedState;
-    expect(otp(copy).app.step).toBe('review');
-    expect(withSaved(copy.app).backend.applications[copy.app.id!]).toBeTruthy();
+    for (const sc of SCENARIOS) {
+      const s = sc.build();
+      expect(JSON.parse(JSON.stringify(s)), sc.id).toEqual(s);
+    }
   });
 });

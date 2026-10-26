@@ -1,10 +1,10 @@
-import { LIMITS } from '../model/config';
-import { eligiblePersons, maskedName } from '../model/mock';
-import { continueWithoutPerson, loadPersons, nafathRemaining, selectPerson, startNafath } from '../model/state';
+import { LIMITS, maskIdentifier } from '../model/config';
+import { ROLE_LABEL, eligiblePersons, maskedName } from '../model/mock';
+import { continueToNafath, runBusinessVerification, selectPerson, stepLocked } from '../model/state';
 import type { Person } from '../model/types';
 import { useProposed, useStepFocus } from '../store';
-import { Alert, Button, Spinner, StepHeader } from '../ui/components';
-import { IconCheck, IconRefresh } from '../ui/icons';
+import { Alert, Button, Spinner, StepHeader, VerifyBadge } from '../ui/components';
+import { IconBuilding, IconCheck, IconRefresh } from '../ui/icons';
 import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 import { useAutoRun } from './useAutoRun';
@@ -15,75 +15,72 @@ export function PersonRow({ person }: { person: Person }) {
     <span className="mb-person">
       <span className="mb-avatar" aria-hidden="true">{initials}</span>
       <span className="mb-person-text">
-        <span className="mb-person-name">{maskedName(person)}</span>
+        <span className="mb-person-name">{maskedName(person)} <span className="mb-role">{ROLE_LABEL[person.role]}</span></span>
         <span className="mb-person-id">National ID {person.idMasked}</span>
       </span>
     </span>
   );
 }
 
-/** Only eligible INDIVIDUALS are offered: companies cannot verify with Nafath. Single selection. */
+/**
+ * Registered business — Business verification. CR data (status, age, activities, National Address)
+ * and the owners / managers are retrieved in the backend; there is no separate CR confirmation page.
+ * The merchant acts only here: choose the owner / manager who will verify with Nafath.
+ */
 export function PersonsStep() {
   const { state, apply } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
-  const { persons, nafath } = state.app;
-  const [running, retry] = useAutoRun(persons.status === 'idle', loadPersons, 1100);
+  const { cr, persons, identity } = state.app;
+  const pending = cr.status === 'idle' || (cr.status === 'loaded' && persons.status === 'idle');
+  const [running, retry] = useAutoRun(pending, runBusinessVerification, 1300);
   const list = eligiblePersons(persons.list);
-  const canRetry = persons.tries <= LIMITS.providerRetries;
-  const remaining = nafathRemaining(state.app);
+  const unavailable = cr.status === 'unavailable' || persons.status === 'unavailable';
+  const tries = cr.status === 'unavailable' ? cr.tries : persons.tries;
+  const canRetry = tries <= LIMITS.providerRetries;
+  const locked = stepLocked(state.app, 'persons');
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('persons')} title="Who is authorised for this business?"
-        description="Choose yourself from the people on the Commercial Registration. You'll confirm your identity with Nafath next." titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('persons')} title="Who is applying for this business?"
+        description="We retrieve your registration from government records — nothing to type. Choose yourself from the owners and managers on the CR; you'll confirm with Nafath next." titleRef={titleRef} />
 
       <div aria-live="polite" className="mb-stack">
-        {(running || persons.status === 'idle') && <div className="mb-progress-line"><Spinner size={16} /> Retrieving the people on the registration…</div>}
+        {(running || pending) && !unavailable && (
+          <div className="mb-progress-line"><Spinner size={16} /> Checking Commercial Registration {maskIdentifier(identity.identifier)}…</div>
+        )}
+
+        {!running && cr.record && persons.status === 'loaded' && (
+          <div className="mb-business-line"><IconBuilding size={18} /> <strong>{cr.record.legalName}</strong> <span className="mb-muted mb-small">CR {maskIdentifier(identity.identifier)}</span> <VerifyBadge state="verified">Registration retrieved</VerifyBadge></div>
+        )}
 
         {!running && persons.status === 'loaded' && (
           <fieldset className="mb-field mb-choice-group">
-            <legend className="mb-label">People on the registration</legend>
+            <legend className="mb-label">Owners and managers on the registration</legend>
             <div className="mb-person-list" role="radiogroup">
               {list.map((p) => {
                 const checked = persons.selectedId === p.id;
                 return (
-                  <label key={p.id} className={`mb-person-option ${checked ? 'is-checked' : ''}`}>
-                    <input type="radio" name="authorised-person" value={p.id} checked={checked} onChange={() => apply((s) => selectPerson(s, p.id))} />
+                  <label key={p.id} className={`mb-person-option ${checked ? 'is-checked' : ''} ${locked && !checked ? 'is-disabled' : ''}`}>
+                    <input type="radio" name="authorised-person" value={p.id} checked={checked} disabled={locked} onChange={() => apply((s) => selectPerson(s, p.id))} />
                     <PersonRow person={p} />
                     <span className="mb-choice-radio" aria-hidden="true">{checked && <IconCheck size={14} />}</span>
                   </label>
                 );
               })}
             </div>
+            <p className="mb-small mb-muted">Only owners and managers can apply online. Applying on someone else’s behalf is not available yet.</p>
           </fieldset>
         )}
 
-        {!running && persons.status === 'loaded' && nafath.failures > 0 && remaining > 0 && (
-          <p className="mb-small mb-muted">{remaining} Nafath attempt{remaining === 1 ? '' : 's'} left for this application. Changing the person does not reset it.</p>
-        )}
-
-        {!running && persons.status === 'none' && (
-          <Alert tone="info" title="No eligible person is listed on this registration"
-            action={<Button variant="secondary" size="sm" onClick={() => apply(continueWithoutPerson)}>Continue to business details</Button>}>
-            Our team will verify who is authorised. You can still complete your business details now.
-          </Alert>
-        )}
-
-        {!running && persons.status === 'unavailable' && (
-          <Alert tone="warning" title="We couldn't retrieve the people on the registration"
-            action={canRetry
-              ? <Button variant="secondary" size="sm" iconLeft={<IconRefresh size={16} />} onClick={retry}>Try again</Button>
-              : <Button variant="secondary" size="sm" onClick={() => apply(continueWithoutPerson)}>Continue; verify later</Button>}>
-            {canRetry ? 'Your progress is saved. Try again in a moment.' : 'You can continue; our team will verify who is authorised.'}
+        {!running && unavailable && (
+          <Alert tone="warning" title="We couldn’t reach the government registry"
+            action={canRetry ? <Button variant="secondary" size="sm" iconLeft={<IconRefresh size={16} />} onClick={retry}>Try again</Button> : undefined}>
+            {canRetry ? 'Your progress is saved. Try again in a moment.' : 'Your application is saved. Use Save & exit: we will send you a link to continue later.'}
           </Alert>
         )}
       </div>
 
-      <StepNav
-        onNext={() => apply(startNafath)}
-        nextLabel="Continue to Nafath"
-        nextDisabled={running || persons.status !== 'loaded' || !persons.selectedId || remaining === 0}
-      />
+      <StepNav onNext={() => apply(continueToNafath)} nextLabel="Continue to Nafath" nextDisabled={running || persons.status !== 'loaded' || !persons.selectedId} />
     </section>
   );
 }

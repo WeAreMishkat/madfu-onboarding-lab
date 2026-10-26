@@ -1,150 +1,102 @@
 import { describe, expect, it } from 'vitest';
-import { DETAILED_BOARD } from './boards';
-import { NOT_IMPLEMENTED, OPEN_ITEMS } from './decisions';
 import { PAGE_SCENARIOS, pageScenarios } from './pageScenarios';
 import { scenarioById } from './scenarios';
-import { initialSim, initialState, openContinueLink, leaveSession, sendContinueLink, submitIdentify, submitKyb } from './state';
+import { runBusinessVerification, runCertificatePrecheck, submitIdentify } from './state';
 import type { ProposedState, StepId } from './types';
-import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './copy';
+import { callsSince } from './verifications';
 
-const build = (id: string) => scenarioById(id)!.build();
-/** Every visible word on the panel for a state: page title, intro, group titles, option labels. */
-const text = (s: ProposedState) => {
-  const { page, groups } = pageScenarios(s);
-  return [page.title, page.intro, ...page.integrations, ...groups.flatMap((g) => [g.title, g.note ?? '', ...g.options.map((o) => o.label)])].join(' | ');
+const at = (id: string, step?: StepId) => { const s = scenarioById(id)!.build(); return step ? { ...s, app: { ...s.app, step } } : s; };
+
+/** A representative state per screen. */
+const SAMPLE: Record<StepId, () => ProposedState> = {
+  kyb: () => at('kyb-cr-online'),
+  identify: () => at('id-new-cr'),
+  otp: () => at('otp-errors'),
+  persons: () => runBusinessVerification(at('cr-business')),
+  nafath: () => at('mm-match'),
+  certificates: () => at('fl-certs-multi'),
+  business: () => at('biz-fl'),
+  commercial: () => at('com-standard'),
+  review: () => at('review'),
+  contract: () => at('contract'),
+  outcome: () => at('cr-expired'),
+  status: () => at('status-approved'),
+  login: () => at('status-submitted', 'login')
 };
+
 const labels = (s: ProposedState) => pageScenarios(s).groups.flatMap((g) => g.options.map((o) => o.label));
-
-/** One representative state per screen. */
-const AT: Partial<Record<StepId, () => ProposedState>> = {
-  kyb: () => build('kyb-cr-both'),
-  identify: () => build('id-new-cr'),
-  otp: () => submitIdentify(build('id-new-cr')),
-  'cr-verify': () => build('act-match'),
-  persons: () => build('x-no-people'),
-  nafath: () => build('nafath-ok'),
-  certificates: () => build('fl-cert'),
-  business: () => build('iban-ok'),
-  commercial: () => build('com-6'),
-  review: () => build('edit-website'),
-  contract: () => build('contract-accept')
-};
+const titles = (s: ProposedState) => pageScenarios(s).groups.map((g) => g.title);
 
 describe('Page Scenarios are page-specific', () => {
   it('every screen has a definition', () => {
-    for (const step of ['kyb', 'lead', 'identify', 'otp', 'cr-verify', 'persons', 'nafath', 'certificates', 'business', 'commercial', 'review', 'contract', 'outcome'] as StepId[]) {
-      expect(PAGE_SCENARIOS[step], step).toBeTruthy();
-    }
+    for (const step of Object.keys(SAMPLE) as StepId[]) expect(PAGE_SCENARIOS[step], step).toBeDefined();
   });
 
-  it('OTP page shows only OTP cases', () => {
-    const s = AT.otp!();
-    expect(s.app.step).toBe('otp');
-    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code', 'Edit mobile number']);
-    expect(text(s)).not.toMatch(/\bCR\b|Nafath|IBAN|categor|commission|contract|certificate|plan/i);
+  it('Page 1 has eligibility results only — no website or Maps scenarios', () => {
+    const l = labels(SAMPLE.kyb());
+    expect(l).toEqual(expect.arrayContaining(['Self-onboarding (registered business)', 'Sales lead (above SAR 20M)', 'Blacklisted category', 'Freelancer without certificate']));
+    expect(l.some((x) => /website|maps|url/i.test(x))).toBe(false);
   });
 
-  it('resumed OTP page: same OTP cases (no Edit mobile), backend reuse stays in the Internal view', () => {
-    let s = sendContinueLink(build('iban-resume'));
-    s = openContinueLink(leaveSession(s), Object.keys(s.backend.tokens).pop()!);
-    expect(labels(s)).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'All attempts failed', 'Resend code']);
-    expect(text(s)).not.toMatch(/reused|Nafath|IBAN/i);
+  it('Page 2 shows the record lookup, the declaration and the abuse control', () => {
+    const l = labels(SAMPLE.identify());
+    expect(l).toEqual(expect.arrayContaining(['New applicant', 'Application already in progress', 'Application already submitted', 'Already a Madfu merchant', 'Too many requests (rate limit)']));
+    expect(titles(SAMPLE.identify())).toContain('Owner or manager on the CR?');
+    expect(titles(at('id-new-fl'))).toContain('IBAN linked to the certificate?');
   });
 
-  it('CR page shows no OTP / Nafath / IBAN cases, and includes the category ↔ activity outcomes', () => {
-    const s = AT['cr-verify']!();
-    const t = text(s);
-    expect(t).not.toMatch(/OTP|\bcode\b|Nafath|IBAN/i);
-    expect(t).toMatch(/CR 3 months old or less/);
-    expect(t).toMatch(/National Address missing/);
-    expect(labels(s)).toEqual(expect.arrayContaining(['Match', 'Conflict', 'Not in the mapping']));
+  it('OTP page shows only OTP cases; registered-mobile codes cannot edit the mobile', () => {
+    const l = labels(SAMPLE.otp());
+    expect(l).toEqual(['Verified', 'Incorrect code', 'Invalid code (wrong format)', 'Expired / timed out', 'Resend code (3 left)', 'Edit mobile number']);
+    const reg = labels(submitIdentify(at('id-incomplete')));
+    expect(reg).toContain('Verified');
+    expect(reg).not.toContain('Edit mobile number');
   });
 
-  it('Nafath page shows only Nafath answers and attempts', () => {
-    const s = AT.nafath!();
-    expect(labels(s)).toEqual(['Verified', 'Rejected', 'Timeout', 'Technical failure', 'First failure — retry available', 'Final failed attempt → manual route']);
-    expect(text(s)).not.toMatch(/OTP|IBAN|certificate|commission|categor/i);
+  it('Business verification shows CR results, risk attributes and owners — no OTP / Nafath / IBAN', () => {
+    const l = labels(SAMPLE.persons());
+    expect(l).toEqual(expect.arrayContaining(['Active CR', 'Expired → saved + Sales', 'Suspended → saved + Sales', 'Provider unavailable', 'Several activities (government category differs)', 'CR 2 months old', 'One owner / manager', 'None (only a delegate / company)']));
+    expect(l.some((x) => /Nafath|OTP|IBAN|code/i.test(x))).toBe(false);
   });
 
-  it('banking page shows only banking controls (and the Freelancer bank-link question for Freelancers)', () => {
-    const cr = AT.business!();
-    expect(text(cr)).not.toMatch(/Nafath|OTP|categor|contract|commission/i);
-    expect(labels(cr)).toEqual(expect.arrayContaining(['Verified', 'Ownership mismatch (first failed attempt)', 'Previously verified (resume) → reused']));
-    expect(labels(cr).some((l) => /linked/.test(l))).toBe(false);
-    const fl = build('fl-bank-yes');
-    expect(labels(fl)).toEqual(['Yes → show IBAN', 'No / not yet → skip IBAN (banking setup required)']);
+  it('Nafath page: mobile ↔ National ID and Nafath answers; the Freelancer adds the backend certificate pre-check', () => {
+    expect(titles(SAMPLE.nafath())).toEqual(['Mobile ↔ National ID', 'Nafath answer', 'Attempts']);
+    const flTitles = titles(runCertificatePrecheck(at('fl-nafath')));
+    expect(flTitles[0]).toBe('Certificate pre-check (backend, before Nafath)');
   });
 
-  it('Commercial Offer shows only states the UI cannot produce naturally; plans are multi-selected on the page', () => {
-    const s = AT.commercial!();
-    expect(labels(s)).toEqual(['Standard offer only', 'Better-offer section opened', 'Optional upload succeeded', 'Optional upload failed']);
-    expect(labels(s).some((l) => /6 \+ 9|9 \+ 12/.test(l))).toBe(false);
+  it('Business Details: channel + store presence; IBAN only for Freelancers', () => {
+    expect(titles(SAMPLE.business())).toEqual(['Channel declared on Page 1 (simulator)', 'Store presence links', 'Freelancer IBAN linkage']);
+    expect(titles(at('biz-cr-both'))).not.toContain('Freelancer IBAN linkage');
   });
 
-  it('Contract shows only normal / declined; acceptance happens through Agree & Submit in the page', () => {
-    const s = AT.contract!();
-    expect(labels(s)).toEqual(['Normal contract', 'Contract declined']);
-    expect(text(s)).not.toMatch(/6 months|9 months|12 months|select.*plan/i);
+  it('Commercial Offer has no plan selection anywhere', () => {
+    const l = labels(SAMPLE.commercial());
+    expect(l).toEqual(['Standard offer only', 'Rate review requested (no file)', 'Evidence uploaded', 'Optional upload failed']);
+    expect(l.some((x) => /month|plan/i.test(x))).toBe(false);
   });
 
-  it('controls change after navigation: options of one stage disappear in the next', () => {
-    const k = build('kyb-cr-online');
-    const i = submitKyb(k);
-    expect(i.app.step).toBe('identify');
-    const before = labels(k);
-    const after = labels(i);
-    expect(before).toContain('Category blocked');
-    expect(after).not.toContain('Category blocked');
-    expect(after).toContain('New applicant');
-    const o = submitIdentify(i);
-    expect(labels(o)).not.toContain('New applicant');
-    expect(labels(o)).toContain('Incorrect code');
+  it('Application Progress shows statuses; "goes live" only once approved', () => {
+    expect(labels(SAMPLE.status())).toContain('Merchant goes live');
+    expect(labels(at('status-submitted'))).not.toContain('Merchant goes live');
   });
 
   it('every option on every page runs on its representative state', () => {
-    for (const [step, make] of Object.entries(AT)) {
-      for (const g of pageScenarios(make!()).groups) {
-        for (const o of g.options) expect(() => o.run(make!()), `${step}: ${o.label}`).not.toThrow();
-      }
+    for (const [step, make] of Object.entries(SAMPLE) as Array<[StepId, () => ProposedState]>) {
+      for (const g of pageScenarios(make()).groups) for (const o of g.options) expect(() => o.run(make()), `${step}: ${o.label}`).not.toThrow();
     }
   });
 
   it('options simulate through the real transitions', () => {
-    const otp = AT.otp!();
     const run = (s: ProposedState, label: string) => pageScenarios(s).groups.flatMap((g) => g.options).find((o) => o.label === label)!.run(s);
-    expect(run(otp, 'Verified').app.step).toBe('cr-verify');
-    expect(run(otp, 'Incorrect code').app.otp.status).toBe('incorrect');
-    expect(run(AT['cr-verify']!(), 'CR 3 months old or less').app.outcome).toBe('TEMPORARILY_NOT_ELIGIBLE');
-    expect(run(AT.nafath!(), 'Final failed attempt → manual route').app.nafath.status).toBe('exhausted');
-    expect(run(AT.business!(), 'Previously verified (resume) → reused').app.ledger.at(-1)?.kind).toBe('reuse');
-    expect(run(AT.contract!(), 'Contract declined').app.outcome).toBe('CONTRACT_DECLINED');
-  });
-});
-
-describe('Mobile ↔ selected owner mismatch: open decision only', () => {
-  const MISMATCH = /mobile.*(match|owner|national id)|mismatch.*mobile/i;
-
-  it('is documented as an open decision, marked NOT IMPLEMENTED — DECISION REQUIRED', () => {
-    const od = OPEN_ITEMS.find((o) => o.title === 'Mobile ownership vs selected authorized person')!;
-    expect(od.type).toBe('PRODUCT / COMPLIANCE DECISION');
-    expect(od.notImplemented).toBe(true);
-    expect(NOT_IMPLEMENTED).toBe('NOT IMPLEMENTED — DECISION REQUIRED');
-    expect(od.clarify).toHaveLength(10);
-  });
-
-  it('appears on the Detailed Master Board as an open-decision note near Authorized Person → Nafath, not as a branch', () => {
-    const c1 = DETAILED_BOARD.find((m) => m.id === 'cr')!;
-    const node = c1.nodes.find((n) => n.kind === 'open' && MISMATCH.test(`${n.label} ${n.detail}`))!;
-    expect(node).toBeTruthy();
-    expect(c1.edges.some((e) => e.from === node.id || e.to === node.id)).toBe(false);
-    const pick = c1.nodes.find((n) => n.id === 'pick')!;
-    expect(Math.abs(node.col - pick.col)).toBeLessThanOrEqual(1);
-  });
-
-  it('has no functional logic: no flag, reason, status, simulated answer or page scenario for it', () => {
-    const vocab = [...Object.keys(FLAG_LABEL), ...Object.values(FLAG_LABEL), ...Object.keys(REASON_LABEL), ...Object.values(REASON_LABEL), ...Object.keys(STATUS_LABEL), ...Object.keys(initialSim())].join(' | ');
-    expect(vocab).not.toMatch(MISMATCH);
-    for (const make of Object.values(AT)) expect(text(make!())).not.toMatch(MISMATCH);
-    expect(text(initialState())).not.toMatch(MISMATCH);
+    const expired = run(SAMPLE.persons(), 'Expired → saved + Sales');
+    expect(expired.app.status).toBe('PAUSED_CR');
+    const pre = run(runCertificatePrecheck(at('fl-nafath')), 'No certificate → lead, no Nafath');
+    expect(pre.app.outcome).toBe('FL_CERT_REQUIRED');
+    expect(callsSince(pre.app, 0).map((c) => c.check)).not.toContain('NAFATH');
+    const mm = run(SAMPLE.nafath(), 'Mismatch, then the corrected mobile matches');
+    const answered = pageScenarios(mm).groups.flatMap((g) => g.options).find((o) => o.label === 'Verified')!.run(mm);
+    expect(answered.app.mobileMatch.status).toBe('mismatch');
+    expect(answered.app.nafath.status).toBe('idle');
   });
 });

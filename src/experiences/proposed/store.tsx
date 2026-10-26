@@ -24,7 +24,7 @@ interface Store {
 
 const Ctx = createContext<Store | null>(null);
 /** Versioned so a stored application from an older model never loads into the new one. */
-export const STORE_KEY = 'proposed:v3';
+export const STORE_KEY = 'proposed:v4';
 
 function load(): ProposedState {
   const saved = readLocal<ProposedState | null>(STORE_KEY, null);

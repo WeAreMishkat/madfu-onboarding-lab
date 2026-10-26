@@ -1,16 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { LIMITS, maskMobile } from './model/config';
+import { activityLabel } from './model/activity';
+import { COST_ASSUMPTIONS_SAR, LIMITS, RULE_FLAGS, kindLabel, maskMobile } from './model/config';
 import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './model/copy';
+import { subLabel } from './model/eligibility';
 import { pageScenarios, reuseNote } from './model/pageScenarios';
-import { BASE_PLANS, OPTIONAL_PLANS, pct, priceFor } from './model/pricing';
+import { pct, priceFor, pricingSub } from './model/pricing';
 import { JOURNEY_PRESETS, scenarioById } from './model/scenarios';
-import { leaveSession, nextPaidCall, openContinueLink } from './model/state';
-import { VERIFICATION_LABEL, checkViews } from './model/verifications';
+import { leaveSession, nextPaidCall, openContinueLink, routeFor } from './model/state';
+import { VERIFICATION_LABEL, checkViews, knownCost } from './model/verifications';
 import { useProposed } from './store';
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="ip-group"><h3 className="ip-group-title">{title}</h3>{children}</section>
 );
+const Row = ({ k, children }: { k: string; children: ReactNode }) => <div><dt>{k}</dt><dd>{children}</dd></div>;
+const yes = (b: boolean) => (b ? 'yes' : 'no');
 
 type Tab = 'step' | 'demo' | 'internal';
 
@@ -18,7 +22,8 @@ type Tab = 'step' | 'demo' | 'internal';
  * Prototype Controls (not merchant UI), three separate areas:
  * - This step: Page Scenarios — only what can happen on the current screen.
  * - Start demo: full-journey starting points and received Continue links.
- * - Internal view: hidden backend state (reuse, calls, eligibility, flags, pricing, rule version).
+ * - Internal view: hidden backend state (lifecycle, routing, category, risk, hard blocks, mobiles,
+ *   calls / reuse / invalidation, cost assumptions, ledger).
  */
 export function InternalPanel({ onClose }: { onClose: () => void }) {
   const { state, apply, replace } = useProposed();
@@ -30,7 +35,10 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
   const note = reuseNote(state);
   const e = app.eligibility;
   const links = backend.sms.filter((m) => m.kind === 'continue-link').slice().reverse();
-  const otpLine = app.sessionMobile ? 'Verified for this session' : app.id ? 'OTP required (new session)' : 'Not verified yet';
+  const cat = app.categoryCheck;
+  const cost = knownCost(app);
+  const lead = backend.leads.find((l) => l.applicationId === app.id);
+  const hardBlock = app.status === 'BLOCKED' || app.status === 'PAUSED_CR' ? app.outcomeReason : null;
 
   return (
     <aside className="ip" aria-label="Prototype Controls">
@@ -100,12 +108,12 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
               <ul className="ip-sms">
                 {links.map((m) => (
                   <li key={m.token}>
-                    <span>To {maskMobile(m.to)} · {m.text}</span>
+                    <span>To {maskMobile(m.to)} · {m.text}{backend.tokens[m.token!] ? '' : ' (no longer valid)'}</span>
                     <button type="button" onClick={() => apply((s) => openContinueLink(leaveSession(s), m.token!))}>Open Continue link (new session)</button>
                   </li>
                 ))}
               </ul>
-            ) : <p className="ip-note">None yet. Use Save &amp; exit after the code to send one.</p>}
+            ) : <p className="ip-note">None yet. Use Save &amp; exit on a draft application to send one.</p>}
           </Section>
         </div>
       )}
@@ -114,39 +122,56 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
         <div className="ip-body" role="tabpanel" aria-label="Internal view">
           <div className="ip-route">
             <div className="ip-route-row"><span>{app.id ? 'Application' : 'Qualification'}</span><code>{app.id ?? app.qualificationId}</code></div>
-            <div className="ip-route-row"><span>Internal status</span><code>{app.status}</code></div>
+            <div className="ip-route-row"><span>Lifecycle status</span><code>{app.status}</code></div>
             <p className="ip-route-label">{STATUS_LABEL[app.status]}</p>
           </div>
+          <Section title="Routing">
+            <dl className="ip-dl">
+              <Row k="Existing record match">{app.existence ?? 'not checked yet'}</Row>
+              <Row k="Opens at (status-aware)">{app.id ? routeFor(app) : app.step}</Row>
+              <Row k="Eligibility (Page 1)">{e ? `${e.result} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</Row>
+              <Row k="Rule version">{e?.ruleset ?? '—'}</Row>
+              <Row k="Hard block">{hardBlock ? `${hardBlock} · ${REASON_LABEL[hardBlock]}` : 'none'}</Row>
+              <Row k="Sales lead">{lead ? `persisted · ${lead.reason}` : app.status === 'SALES_LEAD' ? 'yes' : 'no'}</Row>
+              <Row k="Next expected step">{nextPaidCall(state)}</Row>
+            </dl>
+          </Section>
+          <Section title="Applicant and mobiles">
+            <dl className="ip-dl">
+              <Row k="Applicant type">{kindLabel(app.kyb.kind) || '—'}</Row>
+              <Row k="Prerequisite declaration">{app.identity.prerequisite ?? '—'}</Row>
+              <Row k="Stored registered mobile">{app.registeredMobile ? maskMobile(app.registeredMobile) : '—'}</Row>
+              <Row k="contact_mobile_verified">{yes(app.contactMobileVerified)}</Row>
+              <Row k="authorized_person_mobile_verified">{yes(app.authorizedMobileVerified)} · {app.mobileMatch.checks}/{LIMITS.mobileMatchChecks} checks{app.mobileMatch.status !== 'idle' ? ` · ${app.mobileMatch.status}` : ''}</Row>
+              <Row k="Session verified">{yes(app.sessionVerified)}</Row>
+            </dl>
+          </Section>
+          <Section title="Category and risk (backend)">
+            <dl className="ip-dl">
+              <Row k="Preliminary category">{app.kyb.sub ? subLabel(app.kyb.sub) : '—'}</Row>
+              <Row k="Verified mapped category">{cat ? `${subLabel(cat.verifiedSub)} · ${cat.outcome} (${cat.source})` : 'not retrieved yet'}</Row>
+              <Row k={cat?.source === 'CERTIFICATE' ? 'Certificate activity' : 'CR activities'}>{cat ? cat.activities.map((a) => activityLabel(a.code)).join(' · ') : app.cr.record ? app.cr.record.activities.map((a) => activityLabel(a.code)).join(' · ') : '—'}</Row>
+              <Row k="Risk (synthetic)">{app.risk ? `${app.risk.level} · score ${app.risk.score}` : 'not calculated'}</Row>
+              {app.risk?.factors.map((f) => <Row key={f.factor} k={`  ${f.factor}`}>{f.value} → {f.points}</Row>)}
+              <Row k="Certificate pre-check">{app.kyb.kind === 'FL_CERT' ? `${app.certs.precheck} (rule flag ${RULE_FLAGS.flCertificatePrecheckBeforeNafath ? 'ON' : 'OFF'})` : 'n/a'}</Row>
+              <Row k="Nafath">{app.nafath.status} · requests {app.nafath.requests} · failures {app.nafath.failures}/{LIMITS.nafathAttempts} · technical {app.nafath.technical}/{LIMITS.nafathTechnicalRetries}</Row>
+            </dl>
+          </Section>
           <Section title="External checks (cost view)">
             <ul className="ip-checks">
               {checkViews(app).map((c) => (
                 <li key={c.type} className={`ip-check is-${c.state}`}><strong>{c.label}</strong><span>{c.text}</span></li>
               ))}
-              <li className={`ip-check ${app.sessionMobile ? 'is-verified' : 'is-invalidated'}`}><strong>{VERIFICATION_LABEL.OTP}</strong><span>Session verification: {otpLine}</span></li>
+              <li className={`ip-check ${app.sessionVerified ? 'is-verified' : 'is-invalidated'}`}><strong>{VERIFICATION_LABEL.OTP}</strong><span>{app.sessionVerified ? 'Verified for this session' : app.id ? 'OTP required (new session)' : 'Not verified yet'}</span></li>
             </ul>
-          </Section>
-          <Section title="Expected next paid call">
-            <p className="ip-next-call">{nextPaidCall(state)}</p>
-          </Section>
-          <Section title="Application">
-            <dl className="ip-dl">
-              <div><dt>Screen</dt><dd>{app.step}</dd></div>
-              <div><dt>Furthest screen</dt><dd>{app.lastStep}</dd></div>
-              <div><dt>Eligibility</dt><dd>{e ? `${e.result} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</dd></div>
-              <div><dt>Rule version</dt><dd>{e?.ruleset ?? '—'}</dd></div>
-              <div><dt>KYB linked</dt><dd>{app.kybSnapshot ? `yes · ${app.kybSnapshot.linkedAt.slice(0, 16).replace('T', ' ')}` : 'no (qualification draft)'}</dd></div>
-              <div><dt>Resumed</dt><dd>{app.resumed ? 'yes' : 'no'}</dd></div>
-              {app.outcomeReason && <div><dt>Outcome reason</dt><dd>{app.outcomeReason}</dd></div>}
-              <div><dt>Nafath attempts</dt><dd>{app.nafath.failures}/{LIMITS.nafathAttempts} used</dd></div>
-              <div><dt>Contract</dt><dd>{app.contract.status}</dd></div>
-            </dl>
+            <p className="ip-foot">Product cost assumptions: {Object.entries(COST_ASSUMPTIONS_SAR).filter(([, v]) => v !== null).map(([k, v]) => `${k} ≈ SAR ${v}`).join(' · ')}. Known spend so far ≈ SAR {cost.sar}{cost.unknown ? ` + ${cost.unknown} call(s) of unknown cost` : ''}.</p>
           </Section>
           <Section title="Commercial">
             <dl className="ip-dl">
-              <div><dt>Pricing tier</dt><dd>Standard (category matrix)</dd></div>
-              <div><dt>Standard commission</dt><dd>{app.kyb.sub ? pct(priceFor(app.kyb.sub).standard) : '—'}</dd></div>
-              <div><dt>Optional pricing review</dt><dd>{app.commercial.evidence.length ? `requested (${app.commercial.evidence.length} file)` : 'not requested'}</dd></div>
-              <div><dt>Tenures</dt><dd>{[...BASE_PLANS, ...OPTIONAL_PLANS.filter((t) => app.commercial.optional.includes(t))].join(' · ')} months</dd></div>
+              <Row k="Priced on">{app.kyb.sub ? `${subLabel(pricingSub(app))} (${cat ? 'verified' : 'declared, provisional'})` : '—'}</Row>
+              <Row k="Standard commission">{app.kyb.sub ? pct(priceFor(pricingSub(app)).standard) : '—'}</Row>
+              <Row k="Rate review requested">{app.commercial.reviewRequested ? `yes · ${app.commercial.evidence.length} file(s)` : 'no'}</Row>
+              <Row k="Contract">{app.contract.status}</Row>
             </dl>
           </Section>
           <Section title="Internal flags">
@@ -154,7 +179,7 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
           </Section>
           <Section title="Ledger (latest)">
             <ul className="ip-ledger">
-              {app.ledger.slice(-14).map((l, i) => <li key={i}><span className={`k-${l.kind}`}>{l.kind}</span><span>{l.note}</span></li>)}
+              {app.ledger.slice(-16).map((l, i) => <li key={i}><span className={`k-${l.kind}`}>{l.kind}</span><span>{l.note}</span></li>)}
             </ul>
           </Section>
         </div>

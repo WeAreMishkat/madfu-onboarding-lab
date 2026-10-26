@@ -1,57 +1,58 @@
 import type { ComparisonProfile } from '@/compare/types';
 import { STAGES } from './model/config';
 
-/** Madfu Proposed per the KYB-first journey update (2026-10-23). Every item is a design, not an observation. */
+/** Madfu Proposed per the agreed product decisions of 2026-10-27. Every item is a design, not an observation. */
 export const proposedComparison: ComparisonProfile = {
   experienceId: 'madfu-proposed',
   name: 'Madfu Proposed',
   stages: STAGES.map((s) => ({
     label: `${s.n}. ${s.label}`,
     status: 'PROPOSED' as const,
-    note: s.id === 'kyb' ? 'First page: eligibility before CR, ID, mobile or OTP'
-      : s.id === 'commercial' ? 'Commission and payment plans live here, not in the contract'
-        : s.id === 'contract' ? 'Contract only; available when Nafath is verified'
-          : undefined
+    note: s.id === 'kyb' ? 'Five questions; eligibility before identity, mobile or OTP'
+      : s.id === 'identify' ? 'Identifier + mobile + prerequisite; existing records use the registered mobile'
+        : s.id === 'commercial' ? 'Standard offer only; plans configured later in the Merchant Portal'
+          : s.id === 'contract' ? 'Contract only; one action: Agree & Submit'
+            : s.id === 'outcome' ? 'Submitted applications open Application Progress'
+              : undefined
   })),
   inputs: [
     { label: 'Applicant type: CR / Freelancer with certificate / Freelancer without certificate', status: 'PROPOSED' },
     { label: 'Category + subcategory, annual revenue, sales channel', status: 'PROPOSED' },
-    { label: 'Website (online) and / or Google Maps link (offline), validated', status: 'PROPOSED' },
-    { label: 'CR / Unified Number + mobile + SMS code', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'National ID + mobile + SMS code', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Select authorised person (masked list)', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'CR / Unified Number + mobile + "owner or manager on the CR?" + SMS code', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'National ID + mobile + "IBAN linked to the certificate?" + SMS code', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Select owner / manager (masked list)', appliesTo: 'Registered business', status: 'PROPOSED' },
     { label: 'Select Freelancer Certificate', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Bank linked to certificate? Yes / No', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'IBAN only (bank derived); VAT yes / no; branches optional', status: 'PROPOSED' },
-    { label: 'Optional plans 6 / 9 / 12 months; optional better-rate evidence', status: 'PROPOSED' },
+    { label: 'Online store and / or Google Maps branch link (by channel)', status: 'PROPOSED' },
+    { label: 'IBAN (linked to the certificate)', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Optional better-rate review request', status: 'PROPOSED' },
     { label: 'Contract acceptance', status: 'PROPOSED' }
   ],
   uploads: [
-    { label: 'None in the standard path', status: 'PROPOSED', note: 'Freelancers upload nothing; only optional better-rate evidence in the Commercial Offer' }
+    { label: 'None in the standard path', status: 'PROPOSED', note: 'Only optional evidence after a rate-review request' }
   ],
   automation: [
-    { label: 'Eligibility engine before any external cost', status: 'PROPOSED' },
-    { label: 'Duplicate / existing application detection; KYB snapshot linked after OTP', status: 'PROPOSED' },
-    { label: 'CR data, activities, National Address retrieved; government rules evaluated', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Category ↔ registered activity reconciliation', status: 'PROPOSED' },
-    { label: 'Freelancer certificates retrieved after Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'Verified checks reused: resume costs one OTP', status: 'PROPOSED' },
-    { label: 'Standard commission from the pricing matrix', status: 'PROPOSED' }
+    { label: 'Eligibility engine and internal existence check before any external cost', status: 'PROPOSED' },
+    { label: 'CR data (several activities), owners / managers retrieved; no CR confirmation page', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'Government activity is the verified category (and the pricing category)', status: 'PROPOSED' },
+    { label: 'Backend risk score separate from hard blocks (CR age is a risk factor)', status: 'PROPOSED' },
+    { label: 'Freelancer Certificate pre-check before Nafath (backend cost order)', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Mobile ↔ National ID check before Nafath', status: 'PROPOSED' },
+    { label: 'Verified checks reused: resume costs one OTP', status: 'PROPOSED' }
   ],
   branches: [
-    { label: 'Not eligible / temporarily not eligible at Stage 1, before cost', status: 'PROPOSED' },
-    { label: 'Freelancer without certificate → lead', appliesTo: 'Freelancer', status: 'PROPOSED' },
-    { label: 'CR revenue outside SAR 100K–20M → lead / Sales', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'CR ≤ 3 months, expired, suspended, violation', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Continue link → OTP → last valid stage', status: 'PROPOSED' },
-    { label: 'Bank not linked → banking setup required (continue)', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Blocked on Page 1 with a personalised reason, before cost', status: 'PROPOSED' },
+    { label: 'Sales lead after OTP; no further data', status: 'PROPOSED' },
+    { label: 'Existing application → registered-mobile OTP → resume / Application Progress / login', status: 'PROPOSED' },
+    { label: 'Expired / suspended CR → saved + Sales recovery', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'No certificate → lead, no Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Mobile mismatch → another mobile + OTP → check again', status: 'PROPOSED' },
     { label: 'Nafath failed twice → manual verification, no contract', status: 'PROPOSED' }
   ],
   verification: [
-    { label: 'SMS code (3 attempts); required on every resume', status: 'PROPOSED' },
-    { label: 'Government CR data (age, status, entity, activities, address)', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'Nafath identity and authority (2 attempts per application)', status: 'PROPOSED' },
-    { label: 'IBAN ownership vs business, or individual + certificate (2 attempts)', status: 'PROPOSED' },
+    { label: 'SMS code (3 attempts, 3 resends); required on every resume, to the registered mobile', status: 'PROPOSED' },
+    { label: 'Government CR data (status, age, activities, address, entity)', appliesTo: 'Registered business', status: 'PROPOSED' },
+    { label: 'Mobile ownership vs National ID, then Nafath identity (2 attempts per application)', status: 'PROPOSED' },
+    { label: 'IBAN ↔ certificate linkage', appliesTo: 'Freelancer', status: 'PROPOSED' },
     { label: 'Contract acceptance, separate from Nafath', status: 'PROPOSED' }
   ]
 };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DETAILED_BOARD, NODE_KIND_LABEL, REUSE_NOTE, SIMPLE_BOARD, routeEdge, type JourneyMap, type MapNode, type NodeKind } from './model/boards';
-import { NOT_IMPLEMENTED, OPEN_ITEMS } from './model/decisions';
+import { OPEN_ITEMS } from './model/decisions';
 
 /** Node geometry: normal for the Simple board, large (room for field lists) for the Detailed panels. */
 const geo = (large?: boolean) => (large ? { COL: 262, ROW: 150, W: 214, H: 104, PAD: 28 } : { COL: 228, ROW: 132, W: 188, H: 84, PAD: 28 });
@@ -121,10 +121,8 @@ export function OpenItemsList({ compact }: { compact?: boolean }) {
     <ol className={`jm-open-list ${compact ? 'is-compact' : ''}`}>
       {OPEN_ITEMS.map((o) => (
         <li key={o.id}>
-          <span className="jm-open-type">{o.type}</span> <strong>{o.title}</strong>
-          {o.notImplemented && <> <span className="jm-open-type is-ni">{NOT_IMPLEMENTED}</span></>}
+          <span className="jm-open-type">{o.id} · {o.type}</span> <strong>{o.title}</strong>
           {!compact && <> — {o.detail}</>}
-          {!compact && o.clarify && <ul className="jm-open-clarify">{o.clarify.map((c) => <li key={c}>{c}</li>)}</ul>}
         </li>
       ))}
     </ol>
@@ -139,14 +137,14 @@ export function MasterBoards() {
   return (
     <div className="jm">
       <div className="jm-tabs" role="tablist" aria-label="Master boards">
-        <button role="tab" aria-selected={tab === 'simple'} className={tab === 'simple' ? 'is-active' : ''} onClick={() => setTab('simple')}>Simple Master Board</button>
-        <button role="tab" aria-selected={tab === 'detailed'} className={tab === 'detailed' ? 'is-active' : ''} onClick={() => setTab('detailed')}>Detailed Master Board</button>
+        <button role="tab" aria-selected={tab === 'simple'} className={tab === 'simple' ? 'is-active' : ''} onClick={() => setTab('simple')}>Master Board</button>
+        <button role="tab" aria-selected={tab === 'detailed'} className={tab === 'detailed' ? 'is-active' : ''} onClick={() => setTab('detailed')}>Detailed Logic Board</button>
       </div>
       <BoardLegend />
       {tab === 'simple' ? (
         <>
           <p className="jm-caption">{SIMPLE_BOARD.caption}</p>
-          <div className="jm-canvas" tabIndex={0} aria-label="Simple Master Board, scroll horizontally"><BoardSvg map={SIMPLE_BOARD} /></div>
+          <div className="jm-canvas" tabIndex={0} aria-label="Master Board, scroll horizontally"><BoardSvg map={SIMPLE_BOARD} /></div>
           <p className="jm-reuse-note">{REUSE_NOTE}</p>
         </>
       ) : (

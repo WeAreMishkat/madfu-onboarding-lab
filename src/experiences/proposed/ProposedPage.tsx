@@ -14,24 +14,22 @@ import { BusinessStep } from './steps/BusinessStep';
 import { CertificatesStep } from './steps/CertificatesStep';
 import { CommercialStep } from './steps/CommercialStep';
 import { ContractStep } from './steps/ContractStep';
-import { CrVerifyStep } from './steps/CrVerifyStep';
 import { IdentifyStep } from './steps/IdentifyStep';
 import { KybStep } from './steps/KybStep';
-import { LeadStep } from './steps/LeadStep';
+import { LoginStep } from './steps/LoginStep';
 import { NafathStep } from './steps/NafathStep';
 import { OtpStep } from './steps/OtpStep';
 import { OutcomeStep } from './steps/OutcomeStep';
 import { PersonsStep } from './steps/PersonsStep';
 import { ReviewStep } from './steps/ReviewStep';
+import { StatusStep } from './steps/StatusStep';
 import { IconCheck, IconExit, IconHelp } from './ui/icons';
 import './proposed.css';
 
 export const STEP_VIEW: Record<StepId, ComponentType> = {
   kyb: KybStep,
-  lead: LeadStep,
   identify: IdentifyStep,
   otp: OtpStep,
-  'cr-verify': CrVerifyStep,
   persons: PersonsStep,
   nafath: NafathStep,
   certificates: CertificatesStep,
@@ -39,7 +37,9 @@ export const STEP_VIEW: Record<StepId, ComponentType> = {
   commercial: CommercialStep,
   review: ReviewStep,
   contract: ContractStep,
-  outcome: OutcomeStep
+  outcome: OutcomeStep,
+  status: StatusStep,
+  login: LoginStep
 };
 
 const PDF_NAME = 'Madfu_Merchant_Onboarding_Wireframes.pdf';
@@ -55,12 +55,14 @@ export function ProposedFrame() {
   useEffect(() => { setNotice(null); }, [app.step]);
   const View = STEP_VIEW[app.step];
   const finished = app.step === 'outcome';
-  // The stepper shows complete only for a real submission; a decline stays on Contract; early stops hide it.
-  const submitted = app.outcome === 'SUBMITTED' || app.outcome === 'SUBMITTED_BANKING_PENDING' || (app.outcome === 'MANUAL_VERIFICATION' && !!app.commercial.agreed);
+  // The stepper shows complete only for a real submission; a decline stays on Contract. Leads, stops,
+  // existing-record codes, Application Progress and login hide it.
+  const submitted = app.outcome === 'SUBMITTED' || (app.outcome === 'SUBMITTED_MANUAL' && !!app.commercial.agreed);
   const declined = app.outcome === 'CONTRACT_DECLINED';
-  const leadLike = app.step === 'lead' || (app.step === 'otp' && app.otp.purpose === 'lead') || (finished && !submitted && !declined);
+  const existingCode = app.step === 'otp' && (app.otp.purpose === 'registered' || app.otp.purpose === 'resume');
+  const leadLike = app.eligibility?.result === 'SALES_LEAD' || existingCode || app.step === 'status' || app.step === 'login' || (finished && !submitted && !declined);
   const current = declined ? STAGES.findIndex((s) => s.id === 'contract') : finished ? STAGES.length - 1 : STAGES.indexOf(stageOf(app.step));
-  const canSave = !!app.id && !!app.sessionMobile && !finished;
+  const canSave = !!app.id && app.sessionVerified && app.status === 'DRAFT' && !finished;
 
   const saveAndExit = () => {
     if (isStatic) return setNotice('saved');
@@ -74,7 +76,7 @@ export function ProposedFrame() {
         <div className="mb-header-inner">
           <MadfuBusinessLockup height={22} />
           <nav className="mb-header-actions" aria-label="Application">
-            {app.id && app.sessionMobile && <span className="mb-app-chip" title="Your onboarding application. The merchant account is created after approval.">Application {app.id}</span>}
+            {app.id && app.sessionVerified && <span className="mb-app-chip" title="Your onboarding application. The merchant account is created after approval.">Application {app.id}</span>}
             <button type="button" className="mb-header-btn" onClick={() => setNotice(notice === 'help' ? null : 'help')} aria-expanded={notice === 'help'}>
               <IconHelp size={18} /> <span>Help</span>
             </button>
@@ -88,7 +90,7 @@ export function ProposedFrame() {
         {notice && (
           <div className="mb-toast" role="status">
             {notice === 'saved'
-              ? <><IconCheck size={16} /> Your application is saved. We sent a Continue Application link to {maskMobile(app.verifiedMobile)}. Open it and confirm the code to continue where you left off.</>
+              ? <><IconCheck size={16} /> Your application is saved. We sent a Continue Application link to {maskMobile(app.registeredMobile)}. Open it and confirm the code to continue where you left off.</>
               : <>Questions about your application? Contact Madfu Business support. <button type="button" className="mb-toast-close" onClick={() => setNotice(null)}>Close</button></>}
           </div>
         )}
@@ -175,7 +177,7 @@ function ProposedShell() {
       {view === 'boards' && (
         <div className="mb-docview">
           <h1 className="mb-doc-h1">Master boards</h1>
-          <p className="mb-small mb-muted">Generated from the same model as the prototype. PDFs: <a href={pdfHref(SIMPLE_BOARD_PDF)} download>Simple Master Board</a> · <a href={pdfHref(DETAILED_BOARD_PDF)} download>Detailed Master Board</a></p>
+          <p className="mb-small mb-muted">Generated from the same model as the prototype. PDFs: <a href={pdfHref(SIMPLE_BOARD_PDF)} download>Master Board</a> · <a href={pdfHref(DETAILED_BOARD_PDF)} download>Detailed Logic Board</a></p>
           <MasterBoards />
         </div>
       )}

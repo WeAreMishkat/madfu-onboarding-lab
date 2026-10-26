@@ -10,7 +10,8 @@ import { stageEyebrow } from './shared';
 /**
  * Stage 7 — Contract ONLY. Title, scrollable contract, short disclaimer and ONE primary action:
  * Agree & Submit records the (simulated) acceptance AND submits the application, then the success
- * page opens. No checkbox, no second Submit. Commission and plans appear as contract content only.
+ * page opens. No checkbox, no second Submit, no plan selection. The standard commission appears as
+ * contract content only.
  * Acceptance mechanism is generic (provider not approved); Nafath is not the contract provider.
  */
 export function ContractStep() {
@@ -39,12 +40,13 @@ export function ContractStep() {
           <h3>4. Commercial terms (Schedule 1)</h3>
           <p>As confirmed in the Commercial Offer (synthetic prototype values):</p>
           <table className="mb-doc-table" aria-label="Schedule 1">
-            <thead><tr><th>Plan</th><th>Commission</th><th>Basis</th></tr></thead>
+            <thead><tr><th>Term</th><th>Value</th></tr></thead>
             <tbody>
-              {offer?.plans.map((p) => <tr key={p.tenure}><td>{p.tenure} months</td><td>{pct(p.rate)}</td><td>{p.included ? 'Included' : 'Selected optional plan'}</td></tr>)}
+              <tr><td>Standard commission</td><td>{offer ? pct(offer.standardRate) : '—'}</td></tr>
+              <tr><td>Payment plans</td><td>Configured by the merchant in the Merchant Portal</td></tr>
             </tbody>
           </table>
-          <h3>5. Merchant obligations</h3><p>The merchant keeps its business, bank and tax details current and tells Madfu about material changes.</p>
+          <h3>5. Merchant obligations</h3><p>The merchant keeps its business details current, adds its payout bank account before receiving payouts, and tells Madfu about material changes.</p>
           <h3>6. Review and activation</h3><p>Submission does not activate the merchant. The merchant account is set up only after Madfu approves the application.</p>
           <h3>7. General</h3><p>This sample text exists only to demonstrate the contract step in the prototype.</p>
         </div>

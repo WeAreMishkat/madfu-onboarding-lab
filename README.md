@@ -18,32 +18,36 @@ An interactive product prototype for comparing merchant onboarding journeys side
 | `/tabby` | Tabby (benchmark) | Research evidence up to 2026-10-14 |
 | `/tamara` | Tamara (benchmark) | Research evidence up to 2026-10-14 |
 | `/madfu/current` | Madfu Current | Research evidence (TEST walks, 2026-10-12/13) |
-| `/madfu/proposed` | Madfu Proposed | KYB-first journey update, 23 Oct 2026 (supersedes the 15 Oct wireframe specification where they differ) |
-| `/madfu/proposed?view=boards` | Simple and Detailed Master Boards | Same model as the prototype |
-| `/madfu/proposed?view=rules` | Rules, decision tables, open decisions | Computed from the prototype rules |
+| `/madfu/proposed` | Madfu Proposed | Agreed product decisions, 27 Oct 2026 (v4; supersede the 23 Oct KYB-first journey where they differ) |
+| `/madfu/proposed?view=boards` | Master Board and Detailed Logic Board | Same model as the prototype |
+| `/madfu/proposed?view=rules` | Confirmed decisions, rule tables, open decisions | Computed from the prototype rules |
 | `/compare` | Comparison: Current vs Proposed, or all four | No scores, no ranking |
 
 Documents, all generated from the same model and components as the app:
-- [`Madfu_Proposed_Simple_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Simple_Master_Board.pdf) (1 page)
-- [`Madfu_Proposed_Detailed_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Detailed_Master_Board.pdf) (one panel per area)
+- [`Madfu_Proposed_Simple_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Simple_Master_Board.pdf) — Master Board (1 page)
+- [`Madfu_Proposed_Detailed_Master_Board.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Proposed_Detailed_Master_Board.pdf) — Detailed Logic Board (one panel per area)
 - [`Madfu_Merchant_Onboarding_Wireframes.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Merchant_Onboarding_Wireframes.pdf) (every screen, boards, rule tables)
 - [`docs/MADFU_PROPOSED_JOURNEY.md`](docs/MADFU_PROPOSED_JOURNEY.md) (product rules, open decisions, scenarios)
 
 ## Madfu Proposed in brief
 
-**Principle:** ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification unnecessarily, and do not lose a commercially valid lead.
+**Source of truth:** agreed product decisions of 27 Oct 2026 (v4). They supersede the 23 Oct KYB-first journey where they differ.
 
-**Eight stages:** 1 Know Your Business · 2 Identify & Verify · 3 Business Verification · 4 Business & Banking Details · 5 Commercial Offer · 6 Review · 7 Contract · 8 Submit / Outcome.
+**Principle:** ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification unnecessarily, and never open an existing application without its registered mobile.
 
-- **Know Your Business first:** applicant type (CR / Freelancer with certificate / Freelancer without certificate), category, subcategory, annual revenue, sales channel, website and / or Google Maps link (validated; social-media and WhatsApp links rejected). No CR, ID, mobile or OTP yet. A configurable eligibility engine decides: eligible, Sales lead, temporarily not eligible, not eligible, or manual review. Freelancers without a certificate become leads.
-- **Identify & Verify:** CR / Unified Number or National ID + mobile, duplicate / existing checks, SMS OTP. The Stage-1 record is then linked to the new application and never asked again.
-- **Business Verification:** government CR data (status, age ≤ 3 months = temporarily not eligible, entity, activities, National Address), category ↔ activity reconciliation, authorised person + Nafath; for Freelancers Nafath + retrieved certificates (zero documents).
-- **Business & Banking:** only what is still missing. Freelancers are asked whether the bank account is linked to their certificate; "No" skips the IBAN and continues with "banking setup required".
-- **Commercial Offer:** standard offer first (commission from the pricing matrix, never lowered by declared revenue), 3 and 4-month plans always included, 6 / 9 / 12 optional; a collapsed, optional "Interested in a better commercial offer?" question reveals supporting-document uploads only after Yes and never blocks.
-- **Review** with section Edit and dependency invalidation; **Contract** only, with one action — **Agree & Submit** — that records acceptance and submits (no checkbox, no second Submit); a minimal success page follows immediately.
-- **Resume:** Save & exit sends a Continue Application link; it opens the OTP screen; after the code the applicant lands on the first incomplete screen. Stored successful checks (CR, people, Nafath, certificates, IBAN) are reused: an ordinary resume costs one OTP.
+**Eight stages:** 1 Know Your Business · 2 Identify & Verify · 3 Business Verification · 4 Business Details · 5 Commercial Offer · 6 Review · 7 Contract · 8 Submit / Application Status.
 
-**Prototype Controls** (not merchant UI, open by default, light reviewer theme, with a "Prototype mode" hint at the top), three separate areas: **This step** — Page Scenarios showing only what can happen on the current screen (e.g. the OTP page offers only OTP results); **Start demo** — a few full-journey presets and received Continue links; **Internal view** — checks reused / invalidated, the expected next paid call, flags, eligibility rule version and commercial state. The full scenario catalogue (60 numbered + extras) drives the automated tests and documents.
+- **Page 1 — Know Your Business:** applicant type, category, subcategory, annual revenue, sales channel. Nothing else (no URL, identity, mobile or OTP). Preliminary eligibility: self-onboarding, Sales lead or blocked (categories are allowed or blocked; personalised reasons).
+- **Page 2 — identifier + mobile:** CR / National ID, mobile and one prerequisite declaration (CR: "Are you an owner or manager registered on this CR?"; Freelancer: "Is your IBAN linked to your Freelancer Certificate?"). An **internal existence check** (no provider) decides where the OTP goes: new → the entered mobile; incomplete / submitted / paused application or live merchant → the **registered** mobile (last 3 digits shown; no takeover).
+- **Routing after OTP** reads the **lifecycle status**: Sales lead (persisted, nothing else asked) · blocked (personalised) · new CR · new Freelancer · resume (first unfinished stage) · Application Progress (submitted — never Review / Contract again) · merchant login (live).
+- **Business Verification (CR):** CR data (status, age, several activities, National Address, entity) and owners / managers in the backend — no CR confirmation page. Expired / suspended CR → saved + Sales recovery (no Refresh). CR age is a **risk attribute** (synthetic backend risk model, separate from hard blocks). The government activity becomes the **verified category** (pricing too).
+- **Freelancer cost order:** the certificate existence check runs **before Nafath** in the backend (rule flag; no certificate → lead, no Nafath cost); the applicant still sees Nafath → certificate.
+- **Mobile ↔ National ID before Nafath:** on a mismatch the applicant can use another mobile (new OTP, check again) without restarting; a second mismatch pauses verification.
+- **Business Details:** online store / Google Maps branch link by channel (scheme optional, Saudi / Arabic domains accepted); Freelancer IBAN linkage verified. No CR IBAN, VAT or branch count.
+- **Commercial Offer:** "Your Standard Offer" → Continue. No payment-plan selection (Merchant Portal later). "Want us to review a better commercial rate?" is a small collapsed link; the request is kept even without a file.
+- **Review:** verified sections locked; store presence and the rate review use a transactional edit (Cancel restores everything). **Contract:** Agree & Submit. **Resume:** Save & exit link → registered-mobile OTP → status-aware routing; an ordinary resume costs one OTP.
+
+**Prototype Controls** (not merchant UI, open by default, light reviewer theme; a bottom sheet on phones): **This step** — Page Scenarios for the current screen only; **Start demo** — journey presets and received Continue links; **Internal view** — lifecycle, routing, eligibility, preliminary vs verified category, CR activities, risk, hard blocks, registered / contact / authorised-person mobile, checks called / reused / invalidated, cost assumptions, next paid call, rate review, ledger.
 
 All values are synthetic. Open product and compliance decisions are listed in the app (Rules & decisions) and in the generated doc.
 
