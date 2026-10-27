@@ -3,16 +3,15 @@ import { demoMs, wait } from '@/lib/timing';
 import { LIMITS, formatMobile, isFreelancer, isSaudiMobile, maskIdentifier, maskMobile } from '../model/config';
 import { eligiblePersons } from '../model/mock';
 import {
-  cancelMobileChange, continueAfterNafath, nafathRemaining, nafathResult, nextNafathAnswer, precheckPending, runCertificatePrecheck, sendToNafath,
-  startMobileChange, submitMobileChange
+  backToAuthorize, cancelMobileChange, continueAfterNafath, nafathRemaining, nafathResult, nextNafathAnswer, sendToNafath, startMobileChange,
+  submitMobileChange, verifyingMobile
 } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
 import { Actions, Alert, Button, Field, Spinner, StepHeader, TextInput, VerifyBadge } from '../ui/components';
 import { IconPhone, IconShield } from '../ui/icons';
-import { PersonRow } from './PersonsStep';
+import { PersonRow } from './CrStep';
 import { stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
-import { useAutoRun } from './useAutoRun';
 
 const WINDOW = 120;
 export const NAFATH_RESPONSE_MS = 3200;
@@ -24,9 +23,9 @@ const FAIL_COPY = {
 } as const;
 
 /**
- * Nafath verifies identity; it is NOT the contract. "Send to Nafath" first checks that the verified
- * mobile belongs to the verifying person's National ID. For a Freelancer, the backend has already
- * checked (silently) that a certificate exists, so no Nafath cost is spent without one.
+ * Nafath verifies identity; it is NOT the contract. "Send to Nafath" first checks that the mobile
+ * belongs to the verifying person's National ID: the Freelancer, the self-authorizing owner / manager,
+ * or the signer (the mobile the preparer entered). The signer cannot change the mobile in Phase 1.
  */
 export function NafathStep() {
   const { state, apply, isStatic } = useProposed();
@@ -34,14 +33,13 @@ export function NafathStep() {
   const { app } = state;
   const { nafath, mobileMatch } = app;
   const fl = isFreelancer(app.kyb.kind);
+  const signer = app.actor === 'signer';
   const person = eligiblePersons(app.persons.list).find((p) => p.id === app.persons.selectedId);
   const remaining = nafathRemaining(app);
   const [seconds, setSeconds] = useState(WINDOW);
   const [mobile, setMobile] = useState('');
   const [mobileError, setMobileError] = useState('');
   const [sending, setSending] = useState(false);
-  const pre = precheckPending(app);
-  const [preparing, retryPrecheck] = useAutoRun(pre && app.certs.precheck === 'idle', runCertificatePrecheck, 1000);
 
   // Simulated response from the Nafath app; the Prototype Controls can also answer.
   useEffect(() => {
@@ -68,29 +66,12 @@ export function NafathStep() {
   const identity = fl
     ? <span className="mb-person"><span className="mb-avatar" aria-hidden="true">ID</span><span className="mb-person-text"><span className="mb-person-name">National ID {maskIdentifier(app.identity.identifier)}</span><span className="mb-person-id">Mobile {maskMobile(app.registeredMobile)}</span></span></span>
     : person ? <PersonRow person={person} /> : null;
-  const owner = fl ? 'your National ID' : 'the selected owner or manager';
-
-  if (pre) {
-    return (
-      <section className="mb-card" aria-labelledby="mb-step-title">
-        <StepHeader eyebrow={stageEyebrow('nafath')} title="Verify with Nafath" description="Confirm your identity in the Nafath app." titleRef={titleRef} />
-        <div aria-live="polite" className="mb-stack">
-          {(preparing || app.certs.precheck === 'idle') && <div className="mb-progress-line"><Spinner size={16} /> Preparing your verification…</div>}
-          {!preparing && app.certs.precheck === 'unavailable' && (
-            <Alert tone="warning" title="We couldn’t prepare your verification right now"
-              action={app.certs.tries <= LIMITS.providerRetries ? <Button variant="secondary" size="sm" onClick={retryPrecheck}>Try again</Button> : undefined}>
-              {app.certs.tries <= LIMITS.providerRetries ? 'Your progress is saved. Try again in a moment.' : 'Your application is saved. Use Save & exit and continue later from the link we send you.'}
-            </Alert>
-          )}
-        </div>
-      </section>
-    );
-  }
+  const owner = fl ? 'your National ID' : signer ? 'your National ID' : 'the selected owner or manager';
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('nafath')} title="Verify with Nafath"
-        description={fl ? 'Confirm your identity in the Nafath app.' : 'The selected owner or manager confirms their identity in the Nafath app.'} titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('nafath', app)} title="Verify with Nafath"
+        description={fl || signer ? 'Confirm your identity in the Nafath app.' : 'Confirm your identity in the Nafath app as the selected owner or manager.'} titleRef={titleRef} />
 
       <div className="mb-nafath-identity">
         {identity}
@@ -102,9 +83,9 @@ export function NafathStep() {
         <Alert tone="error" title={`The mobile number must belong to ${owner}.`}
           action={<div className="mb-btn-row">
             <Button variant="secondary" size="sm" iconLeft={<IconPhone size={16} />} onClick={() => apply(startMobileChange)}>Use another mobile number</Button>
-            {!fl && <Button variant="ghost" size="sm" onClick={() => apply((s) => ({ ...s, app: { ...s.app, step: 'persons' } }))}>Choose another owner or manager</Button>}
+            {!fl && <Button variant="ghost" size="sm" onClick={() => apply(backToAuthorize)}>Change who authorizes</Button>}
           </div>}>
-          {maskMobile(app.registeredMobile)} is not registered to {owner}. Your progress is saved.
+          {maskMobile(verifyingMobile(app))} is not registered to {owner}. Your progress is saved.
         </Alert>
       )}
 
@@ -158,7 +139,7 @@ export function NafathStep() {
       )}
 
       {nafath.status === 'verified' && (
-        <Alert tone="success" title="Identity verified">{fl ? 'Next, choose your Freelancer Certificate.' : 'Next, your business details.'}</Alert>
+        <Alert tone="success" title="Identity verified">{signer ? 'Next, review the application.' : fl ? 'Next, your business details.' : 'Next, the contract.'}</Alert>
       )}
 
       {nafath.status === 'failed' && nafath.lastResult && nafath.lastResult !== 'verified' && (
@@ -177,12 +158,12 @@ export function NafathStep() {
       {nafath.status === 'exhausted' && (
         <Alert tone="warning" title="Nafath verification was not completed">
           {fl
-            ? 'We will verify your identity manually. Continue to send your application to our team.'
-            : 'We will verify the owner or manager manually. You can still complete your business details. The contract will not be available in this application.'}
+            ? 'We will verify your identity manually. You can still complete your business details; the contract will not be available in this application.'
+            : 'We will verify the owner or manager manually. Continue to send your application to our team; the contract will not be available in this application.'}
         </Alert>
       )}
 
-      <StepNav onNext={nafath.status === 'verified' || nafath.status === 'exhausted' ? () => apply(continueAfterNafath) : undefined} nextLabel="Continue" />
+      <StepNav onNext={nafath.status === 'verified' || (nafath.status === 'exhausted' && !signer) ? () => apply(continueAfterNafath) : undefined} nextLabel="Continue" hideBack={signer} />
     </section>
   );
 }

@@ -82,8 +82,8 @@ export const EDIT_POLICY: Array<{ section: string; editable: boolean; invalidate
   { section: 'Applicant type, CR / National ID', editable: false, invalidates: [], note: 'Locked: start a new application for another business' },
   { section: 'Declared category (Page 1)', editable: false, invalidates: [], note: 'Locked once the application exists; the verified government category is authoritative' },
   { section: 'Verified government data, activities, verified category', editable: false, invalidates: [], note: 'Locked: retrieved, never typed' },
-  { section: 'Selected owner / manager, verified mobile', editable: false, invalidates: [], note: 'Locked after Nafath' },
-  { section: 'Freelancer Certificate', editable: false, invalidates: [], note: 'Locked after selection is confirmed' },
+  { section: 'Authorizing owner / manager, verified mobile', editable: false, invalidates: [], note: 'Chosen at the Authorization step; locked after Nafath or a signer handoff' },
+  { section: 'Freelancer Certificate', editable: false, invalidates: [], note: 'Chosen before Nafath; locked once Nafath is verified' },
   { section: 'Freelancer IBAN (verified)', editable: false, invalidates: [], note: 'Locked once verified; before that it is edited on Business Details (IBAN check only)' },
   { section: 'Store presence (website / Google Maps)', editable: true, invalidates: [], note: 'Re-validates the URL format only' },
   { section: 'Commercial rate review request', editable: true, invalidates: [], note: 'Standard offer unchanged; internal flag only' }

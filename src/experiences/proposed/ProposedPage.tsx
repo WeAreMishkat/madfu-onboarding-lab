@@ -6,22 +6,26 @@ import { StatusBadge } from '@/lab/StatusBadge';
 import { DecisionTables } from './DecisionTables';
 import { InternalPanel } from './InternalPanel';
 import { MasterBoards } from './MasterBoards';
-import { STAGES, maskMobile, stageOf } from './model/config';
-import { openContinueLink, sendContinueLink } from './model/state';
+import { SIGNER_STAGES, STAGES, maskMobile, stageFor } from './model/config';
+import { openContinueLink, openSignerLink, sendContinueLink } from './model/state';
 import type { StepId } from './model/types';
 import { ProposedProvider, useProposed } from './store';
+import { AuthorizeStep } from './steps/AuthorizeStep';
 import { BusinessStep } from './steps/BusinessStep';
 import { CertificatesStep } from './steps/CertificatesStep';
 import { CommercialStep } from './steps/CommercialStep';
 import { ContractStep } from './steps/ContractStep';
+import { CrStep } from './steps/CrStep';
+import { DelegationStep } from './steps/DelegationStep';
+import { HandoffStep } from './steps/HandoffStep';
 import { IdentifyStep } from './steps/IdentifyStep';
 import { KybStep } from './steps/KybStep';
 import { LoginStep } from './steps/LoginStep';
 import { NafathStep } from './steps/NafathStep';
 import { OtpStep } from './steps/OtpStep';
 import { OutcomeStep } from './steps/OutcomeStep';
-import { PersonsStep } from './steps/PersonsStep';
 import { ReviewStep } from './steps/ReviewStep';
+import { SignerStep } from './steps/SignerStep';
 import { StatusStep } from './steps/StatusStep';
 import { IconCheck, IconExit, IconHelp } from './ui/icons';
 import './proposed.css';
@@ -30,12 +34,16 @@ export const STEP_VIEW: Record<StepId, ComponentType> = {
   kyb: KybStep,
   identify: IdentifyStep,
   otp: OtpStep,
-  persons: PersonsStep,
-  nafath: NafathStep,
+  cr: CrStep,
   certificates: CertificatesStep,
+  nafath: NafathStep,
   business: BusinessStep,
   commercial: CommercialStep,
   review: ReviewStep,
+  authorize: AuthorizeStep,
+  handoff: HandoffStep,
+  delegation: DelegationStep,
+  signer: SignerStep,
   contract: ContractStep,
   outcome: OutcomeStep,
   status: StatusStep,
@@ -55,13 +63,18 @@ export function ProposedFrame() {
   useEffect(() => { setNotice(null); }, [app.step]);
   const View = STEP_VIEW[app.step];
   const finished = app.step === 'outcome';
-  // The stepper shows complete only for a real submission. Not Eligible journeys, stops,
-  // existing-record codes, Application Progress and login hide it.
-  const submitted = app.outcome === 'SUBMITTED' || (app.outcome === 'SUBMITTED_MANUAL' && !!app.commercial.agreed);
+  const signer = app.actor === 'signer';
+  // The stepper shows complete only for a real submission. Internally Not Eligible applications get
+  // no stepper (nothing suggests a longer journey), nor do stops, existing-record codes, Application
+  // Progress, the active-account popup and the signer's ended-link page.
+  const submitted = app.outcome === 'SUBMITTED' || app.outcome === 'RECEIVED' || (app.outcome === 'SUBMITTED_MANUAL' && !!app.commercial.agreed);
   const existingCode = app.step === 'otp' && (app.otp.purpose === 'registered' || app.otp.purpose === 'resume');
-  const leadLike = app.eligibility?.result === 'NOT_ELIGIBLE' || existingCode || app.step === 'status' || app.step === 'login' || (finished && !submitted);
-  const current = finished ? STAGES.length - 1 : STAGES.indexOf(stageOf(app.step));
-  const canSave = !!app.id && app.sessionVerified && app.status === 'DRAFT' && !finished;
+  const hideStepper = app.eligibility?.result === 'NOT_ELIGIBLE' || existingCode || app.step === 'status' || app.step === 'login' || (finished && !submitted) || app.outcome === 'RECEIVED';
+  const signerStepper = signer && app.signerSession?.link === 'active' || (signer && finished);
+  const stages = signer ? SIGNER_STAGES : STAGES;
+  const current = finished ? stages.length - 1 : signer ? SIGNER_STAGES.findIndex((x) => (x.steps as readonly string[]).includes(app.step)) : STAGES.indexOf(stageFor(app.step, app));
+  const canSave = !!app.id && app.sessionVerified && app.status === 'DRAFT' && !finished && !signer;
+  const showStepper = signer ? signerStepper : !hideStepper;
 
   const saveAndExit = () => {
     if (isStatic) return setNotice('saved');
@@ -75,7 +88,8 @@ export function ProposedFrame() {
         <div className="mb-header-inner">
           <MadfuBusinessLockup height={22} />
           <nav className="mb-header-actions" aria-label="Application">
-            {app.id && app.sessionVerified && <span className="mb-app-chip" title="Your onboarding application. The merchant account is created after approval.">Application {app.id}</span>}
+            {app.id && app.sessionVerified && !signer && <span className="mb-app-chip" title="Your onboarding application. The merchant account is created after approval.">Application {app.id}</span>}
+            {signer && <span className="mb-app-chip" title="You were asked to authorize this application.">Authorization request</span>}
             <button type="button" className="mb-header-btn" onClick={() => setNotice(notice === 'help' ? null : 'help')} aria-expanded={notice === 'help'}>
               <IconHelp size={18} /> <span>Help</span>
             </button>
@@ -93,9 +107,9 @@ export function ProposedFrame() {
               : <>Questions about your application? Contact Madfu Business support. <button type="button" className="mb-toast-close" onClick={() => setNotice(null)}>Close</button></>}
           </div>
         )}
-        {!leadLike && (
-          <ol className="mb-progress" aria-label={`Progress: stage ${Math.min(current + 1, STAGES.length)} of ${STAGES.length}`}>
-            {STAGES.map((s, i) => (
+        {showStepper && (
+          <ol className="mb-progress" aria-label={`Progress: stage ${Math.min(current + 1, stages.length)} of ${stages.length}`}>
+            {stages.map((s, i) => (
               <li key={s.id} className={i < current || (submitted && i === current) ? 'is-done' : i === current ? 'is-current' : ''} aria-current={i === current ? 'step' : undefined}>
                 <span className="mb-progress-mark" aria-hidden="true">{i < current || (submitted && i === current) ? <IconCheck size={13} /> : i + 1}</span>
                 <span className="mb-progress-label">{s.short}</span>
@@ -134,6 +148,13 @@ function ProposedShell() {
     apply((s) => openContinueLink(s, token));
     setParams({}, { replace: true });
   }, [token, apply, setParams]);
+  // A signer's secure link: no OTP; the signer confirmation page, then Nafath.
+  const signerToken = params.get('authorize');
+  useEffect(() => {
+    if (!signerToken) return;
+    apply((s) => openSignerLink(s, signerToken));
+    setParams({}, { replace: true });
+  }, [signerToken, apply, setParams]);
 
   return (
     <div className="mb-root">

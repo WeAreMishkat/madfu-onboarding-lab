@@ -18,7 +18,9 @@ export const DEMO = {
   mobile: ['5', '0000', '0012'].join(''),
   otherMobile: ['5', '0000', '0099'].join(''),
   /** Mobile stored on an existing application / merchant account (masked as •••••••123). */
-  registeredMobile: ['5', '0000', '0123'].join('')
+  registeredMobile: ['5', '0000', '0123'].join(''),
+  /** Primary Nafath mobile the preparer enters for another CR signer. */
+  signerMobile: ['5', '0000', '0456'].join('')
 };
 
 /** Synthetic Saudi-format IBAN with impossible check digits (00). */
@@ -123,4 +125,5 @@ const pad = (n: number) => String(100000 + (Math.abs(n) % 900000)).padStart(6, '
 export const newApplicationId = (seed: number) => `APP-${pad(seed)}`;
 export const newQualificationId = (seed: number) => `KYB-${pad(seed * 7 + 13)}`;
 export const newContinueToken = (seed: number) => `CL-${pad(seed * 31 + 5)}${pad(seed * 17 + 3).slice(0, 3)}`;
+export const newSignerToken = (seed: number) => `SL-${pad(seed * 29 + 11)}${pad(seed * 13 + 7).slice(0, 3)}`;
 export const providerRef = (type: string, seed: number) => `SIM-${type}-${pad(seed).slice(-4)}`;

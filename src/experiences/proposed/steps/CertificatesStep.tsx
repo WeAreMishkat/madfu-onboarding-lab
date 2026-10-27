@@ -13,25 +13,26 @@ const unavailableReason = (c: Certificate) =>
   c.status === 'expired' ? 'Expired' : c.issue === 'duplicate' ? 'Already linked to another Madfu account' : null;
 
 /**
- * After Nafath: the certificates linked to the verified National ID — retrieved, never uploaded. When
- * the backend pre-check already found them, they are shown now with no new call. The confirmed
- * certificate's activity becomes the verified category (pricing included).
+ * Freelancer, right after the OTP and BEFORE Nafath: the certificates linked to the National ID —
+ * retrieved, never uploaded (one call; no certificate → no Nafath cost). The confirmed certificate's
+ * activity becomes the verified category (pricing included). Locked once Nafath is verified.
  */
 export function CertificatesStep() {
   const { state, apply } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const { certs } = state.app;
   const [running, retry] = useAutoRun(certs.status === 'idle', loadCertificates, 900);
+  const unavailable = certs.status === 'unavailable';
   const canRetry = certs.tries <= LIMITS.providerRetries;
   const locked = stepLocked(state.app, 'certificates');
 
   return (
     <section className="mb-card" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('certificates')} title="Choose your Freelancer Certificate"
-        description="These certificates are linked to your verified National ID. Nothing to upload: choose the one this application is for." titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('certificates', state.app)} title="Choose your Freelancer Certificate"
+        description="These certificates are linked to your National ID. Nothing to upload: choose the one this application is for. Next, you verify your identity with Nafath." titleRef={titleRef} />
 
       <div aria-live="polite" className="mb-stack">
-        {(running || (certs.status === 'idle' && certs.precheck !== 'unavailable')) && <div className="mb-progress-line"><Spinner size={16} /> Retrieving your Freelancer Certificates…</div>}
+        {(running || certs.status === 'idle') && !unavailable && <div className="mb-progress-line"><Spinner size={16} /> Retrieving your Freelancer Certificates…</div>}
 
         {!running && certs.status === 'loaded' && (
           <fieldset className="mb-field mb-choice-group">
@@ -57,7 +58,7 @@ export function CertificatesStep() {
           </fieldset>
         )}
 
-        {!running && certs.status === 'idle' && certs.precheck === 'unavailable' && (
+        {!running && unavailable && (
           <Alert tone="warning" title="We couldn’t retrieve your certificates"
             action={canRetry ? <Button variant="secondary" size="sm" iconLeft={<IconRefresh size={16} />} onClick={retry}>Try again</Button> : undefined}>
             {canRetry ? 'Your progress is saved. Try again in a moment.' : 'Your application is saved. Use Save & exit and continue later from the link we send you.'}
@@ -65,7 +66,7 @@ export function CertificatesStep() {
         )}
       </div>
 
-      <StepNav onNext={() => apply(confirmCertificate)} nextDisabled={running || certs.status !== 'loaded' || !certs.selectedId} />
+      <StepNav onNext={() => apply(confirmCertificate)} nextLabel={locked ? 'Next' : 'Continue to Nafath'} nextDisabled={running || certs.status !== 'loaded' || !certs.selectedId} />
     </section>
   );
 }

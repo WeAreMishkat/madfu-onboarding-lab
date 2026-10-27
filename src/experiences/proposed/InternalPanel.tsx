@@ -1,12 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { activityLabel } from './model/activity';
-import { COST_ASSUMPTIONS_SAR, LIMITS, RULE_FLAGS, kindLabel, maskMobile } from './model/config';
-import { FLAG_LABEL, REASON_LABEL, STATUS_LABEL } from './model/copy';
+import { COST_ASSUMPTIONS_SAR, HANDOFF_RULES, LIMITS, kindLabel, maskMobile } from './model/config';
+import { AUTH_END_LABEL, AUTH_STATUS_LABEL, DELEGATION_LABEL, FLAG_LABEL, REASON_LABEL, RISK_DECISION_LABEL, STATUS_LABEL, customerStatus } from './model/copy';
 import { subLabel } from './model/eligibility';
+import { eligiblePersons, maskedName } from './model/mock';
 import { PAGE_SCENARIOS, pageScenarios, reuseNote } from './model/pageScenarios';
 import { pct, priceFor, pricingSub } from './model/pricing';
-import { JOURNEY_PRESETS, scenarioById } from './model/scenarios';
-import { leaveSession, nextPaidCall, openContinueLink, reviewerBack, reviewerBackTarget, routeFor } from './model/state';
+import { JOURNEY_PRESETS, WORKFLOWS, scenarioById } from './model/scenarios';
+import {
+  currentVersion, firstIncomplete, handoffAllowance, handoffsInWindow, isFrozen, leaveSession, nextPaidCall, openContinueLink, openSignerLink, reviewerBack,
+  reviewerBackTarget, routeFor
+} from './model/state';
 import { VERIFICATION_LABEL, checkViews, knownCost } from './model/verifications';
 import { useProposed } from './store';
 
@@ -35,10 +39,15 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
   const note = reuseNote(state);
   const e = app.eligibility;
   const links = backend.sms.filter((m) => m.kind === 'continue-link').slice().reverse();
+  const signerLinks = backend.sms.filter((m) => m.kind === 'signer-link').slice().reverse();
+  const auth = app.authorization;
+  const version = currentVersion(app);
+  const signerPerson = eligiblePersons(app.persons.list).find((p) => p.id === app.persons.selectedId);
   const cat = app.categoryCheck;
   const cost = knownCost(app);
   const saved = backend.notEligible.find((l) => l.applicationId === app.id);
   const stopReason = app.status === 'NOT_ELIGIBLE' || app.status === 'PAUSED_CR' ? app.outcomeReason : null;
+  const merchantSees = app.status === 'NOT_ELIGIBLE' ? `Application submitted → “${customerStatus(app.status).replace('_', ' ').toLowerCase()}”` : null;
   const backTo = reviewerBackTarget(app);
 
   return (
@@ -102,15 +111,29 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
 
       {tab === 'demo' && (
         <div className="ip-body" role="tabpanel" aria-label="Start demo">
-          <Section title="Journey overview">
-            <div className="ip-scenarios">
-              {JOURNEY_PRESETS.map((p) => (
-                <button key={p.id} type="button" className={`ip-scenario ${state.scenarioId === p.id ? 'is-active' : ''}`} title={p.hint} onClick={() => replace(scenarioById(p.id)!.build())}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <p className="ip-foot">Inside a screen, use This step: it shows only what can happen there.</p>
+          {WORKFLOWS.map((w, i) => (
+            <Section key={w} title={`${i + 1}. ${w}`}>
+              <div className="ip-scenarios">
+                {JOURNEY_PRESETS.filter((p) => p.workflow === w).map((p) => (
+                  <button key={p.id} type="button" className={`ip-scenario ${state.scenarioId === p.id ? 'is-active' : ''}`} title={p.hint} onClick={() => replace(scenarioById(p.id)!.build())}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </Section>
+          ))}
+          <p className="ip-foot">Inside a screen, use This step: it shows only what can happen there.</p>
+          <Section title="Signer links received (simulated SMS)">
+            {signerLinks.length ? (
+              <ul className="ip-sms">
+                {signerLinks.map((m) => (
+                  <li key={m.token}>
+                    <span>To {maskMobile(m.to)} · {m.text}</span>
+                    <button type="button" onClick={() => apply((s) => openSignerLink(leaveSession(s), m.token!))}>Open signer link (new session)</button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="ip-note">None yet. Use “Send to another signer” on the Authorization page.</p>}
           </Section>
           <Section title="Continue links received (simulated SMS)">
             {links.length ? (
@@ -136,19 +159,23 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
           </div>
           <Section title="Routing">
             <dl className="ip-dl">
+              <Row k="Session actor">{app.actor === 'signer' ? `signer (secure link V${app.signerSession?.version} · ${app.signerSession?.link})` : 'preparer'}</Row>
               <Row k="Existing record match">{app.existence ?? 'not checked yet'}</Row>
-              <Row k="Opens at (status-aware)">{app.id ? routeFor(app) : app.step}</Row>
-              <Row k="Eligibility (Page 1)">{e ? `${e.result}${e.notEligibleAt ? ` (shown ${e.notEligibleAt === 'KYB' ? 'on Page 1' : 'after OTP'})` : ''} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</Row>
+              <Row k="Entered mobile ≠ stored mobile">{app.enteredMobileIgnored ? 'yes — not used; code to the stored mobile only' : 'no'}</Row>
+              <Row k="Opens at (lifecycle + authorization)">{app.id ? routeFor(app) : app.step}</Row>
+              <Row k="Resume stage (first unfinished)">{app.id && app.status === 'DRAFT' ? firstIncomplete(app) : '—'}</Row>
+              <Row k="Eligibility result (internal)">{e ? `${e.result} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</Row>
               <Row k="Rule version">{e?.ruleset ?? '—'}</Row>
-              <Row k="Not Eligible / paused reason">{stopReason ? `${stopReason} · ${REASON_LABEL[stopReason]}` : 'none'}</Row>
-              <Row k="Not Eligible record (verified contact)">{saved ? `saved · ${saved.reason}` : 'no'}</Row>
+              <Row k="Internal not-eligible / paused reason">{stopReason ? `${stopReason} · ${REASON_LABEL[stopReason]}` : 'none'}</Row>
+              <Row k="Merchant sees">{merchantSees ?? (app.outcome ? app.outcome : '—')}</Row>
+              <Row k="Captured not-eligible record">{saved ? `saved · ${saved.reason} · team contacts the applicant` : 'no'}</Row>
               <Row k="Next expected step">{nextPaidCall(state)}</Row>
             </dl>
           </Section>
           <Section title="Applicant and mobiles">
             <dl className="ip-dl">
               <Row k="Applicant type">{kindLabel(app.kyb.kind) || '—'}</Row>
-              <Row k="Prerequisite declaration">{app.identity.prerequisite ?? '—'}</Row>
+              <Row k="IBAN-linked declaration (Freelancer)">{app.identity.prerequisite ?? '—'}</Row>
               <Row k="Stored registered mobile">{app.registeredMobile ? maskMobile(app.registeredMobile) : '—'}</Row>
               <Row k="contact_mobile_verified">{yes(app.contactMobileVerified)}</Row>
               <Row k="authorized_person_mobile_verified">{yes(app.authorizedMobileVerified)} · {app.mobileMatch.checks}/{LIMITS.mobileMatchChecks} checks{app.mobileMatch.status !== 'idle' ? ` · ${app.mobileMatch.status}` : ''}</Row>
@@ -160,9 +187,9 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
               <Row k="Preliminary category">{app.kyb.sub ? subLabel(app.kyb.sub) : '—'}</Row>
               <Row k="Verified mapped category">{cat ? `${subLabel(cat.verifiedSub)} · ${cat.outcome} (${cat.source})` : 'not retrieved yet'}</Row>
               <Row k={cat?.source === 'CERTIFICATE' ? 'Certificate activity' : 'CR activities'}>{cat ? cat.activities.map((a) => activityLabel(a.code)).join(' · ') : app.cr.record ? app.cr.record.activities.map((a) => activityLabel(a.code)).join(' · ') : '—'}</Row>
-              <Row k="Risk (synthetic)">{app.risk ? `${app.risk.level} · score ${app.risk.score}` : 'not calculated'}</Row>
+              <Row k="Risk (synthetic)">{app.risk ? `${app.risk.level} · score ${app.risk.score} · ${RISK_DECISION_LABEL[app.risk.decision]} (illustrative)` : 'not calculated'}</Row>
               {app.risk?.factors.map((f) => <Row key={f.factor} k={`  ${f.factor}`}>{f.value} → {f.points}</Row>)}
-              <Row k="Certificate pre-check">{app.kyb.kind === 'FL_CERT' ? `${app.certs.precheck} (rule flag ${RULE_FLAGS.flCertificatePrecheckBeforeNafath ? 'ON' : 'OFF'})` : 'n/a'}</Row>
+              <Row k="Freelancer certificate (before Nafath)">{app.kyb.kind === 'FL_CERT' ? `${app.certs.status}${app.categoryCheck?.source === 'CERTIFICATE' ? ' · confirmed' : ''}` : 'n/a'}</Row>
               <Row k="Nafath">{app.nafath.status} · requests {app.nafath.requests} · failures {app.nafath.failures}/{LIMITS.nafathAttempts} · technical {app.nafath.technical}/{LIMITS.nafathTechnicalRetries}</Row>
             </dl>
           </Section>
@@ -175,11 +202,35 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
             </ul>
             <p className="ip-foot">Product cost assumptions: {Object.entries(COST_ASSUMPTIONS_SAR).filter(([, v]) => v !== null).map(([k, v]) => `${k} ≈ SAR ${v}`).join(' · ')}. Known spend so far ≈ SAR {cost.sar}{cost.unknown ? ` + ${cost.unknown} call(s) of unknown cost` : ''}.</p>
           </Section>
+          {app.kyb.kind === 'CR' && (
+            <Section title="Authorization (CR signer handoff)">
+              <dl className="ip-dl">
+                <Row k="Mode">{auth.mode ?? 'not chosen'}</Row>
+                <Row k="Authorization status">{auth.status} · {AUTH_STATUS_LABEL[auth.status]}</Row>
+                <Row k="Authorization version">{version ? `V${version.version} · ${version.status}` : 'none'}</Row>
+                <Row k="Signer selected">{auth.mode && signerPerson ? `${maskedName(signerPerson)} · ${signerPerson.idMasked}` : '—'}</Row>
+                <Row k="Signer mobile (masked)">{version ? maskMobile(version.signerMobile) : '—'}</Row>
+                <Row k="Handoff created / expiry">{version ? `${version.createdAt.slice(0, 10)} → ${version.expiresAt.slice(0, 10)} (${HANDOFF_RULES.expiryDays} days, configurable)` : '—'}</Row>
+                <Row k="Handoff attempts in window">{handoffsInWindow(app)} of {handoffAllowance(app)} in {HANDOFF_RULES.windowDays} days{auth.limitReached ? ' · LIMIT REACHED — internal unlock needed' : ''}</Row>
+                <Row k="Application frozen">{isFrozen(app) ? `yes, since ${auth.frozenAt!.slice(0, 10)}` : 'no'}</Row>
+                <Row k="Delegated signer (Phase 2 demo)">{auth.delegation.type ? `${DELEGATION_LABEL[auth.delegation.type].title} · ${auth.delegation.status} (${DELEGATION_LABEL[auth.delegation.type].review})` : 'none'}</Row>
+                <Row k="Final signing status">{app.contract.status === 'accepted' ? `signed ${app.contract.acceptedAt.slice(0, 10)}` : app.contract.status}</Row>
+              </dl>
+              {auth.versions.length > 0 && (
+                <ul className="ip-ledger" aria-label="Authorization audit trail">
+                  {auth.versions.map((v) => (
+                    <li key={v.version}><span className="k-internal">V{v.version}</span><span>{v.applicationId} · {v.signerName} · {maskMobile(v.signerMobile)} · {v.status}{v.endReason ? ` (${AUTH_END_LABEL[v.endReason]})` : ''} · by {v.initiatedBy}{v.completedAt ? ` · completed ${v.completedAt.slice(0, 10)}` : ''}</span></li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+          )}
           <Section title="Commercial">
             <dl className="ip-dl">
               <Row k="Priced on">{app.kyb.sub ? `${subLabel(pricingSub(app))} (${cat ? 'verified' : 'declared, provisional'})` : '—'}</Row>
               <Row k="Standard commission">{app.kyb.sub ? pct(priceFor(pricingSub(app)).standard) : '—'}</Row>
               <Row k="Rate review requested">{app.commercial.reviewRequested ? `yes · ${app.commercial.evidence.length} file(s)` : 'no'}</Row>
+              <Row k="Offer frozen">{isFrozen(app) ? 'yes (signer reviews it read-only)' : 'no'}</Row>
               <Row k="Contract">{app.contract.status}</Row>
             </dl>
           </Section>

@@ -4,7 +4,7 @@ import { kindLabel, maskIban, maskIdentifier, maskMobile, revenueLabel } from '.
 import { subLabel } from '../model/eligibility';
 import { eligiblePersons, maskedName, ROLE_LABEL } from '../model/mock';
 import { pct } from '../model/pricing';
-import { EDITABLE_SECTIONS, contractEligible, continueFromReview, reviewIssues, startEdit } from '../model/state';
+import { EDITABLE_SECTIONS, canEdit, contractEligible, continueFromReview, reviewIssues, startEdit } from '../model/state';
 import type { SectionId } from '../model/types';
 import { useProposed, useStepFocus } from '../store';
 import { Alert, Button, StepHeader, VerifyBadge } from '../ui/components';
@@ -13,8 +13,8 @@ import { CHANNEL_LABEL, stageEyebrow } from './shared';
 import { StepNav } from './StepNav';
 
 function Section({ title, section, children, issue }: { title: string; section: SectionId; children: ReactNode; issue?: boolean }) {
-  const { apply } = useProposed();
-  const editable = EDITABLE_SECTIONS.includes(section);
+  const { state, apply } = useProposed();
+  const editable = EDITABLE_SECTIONS.includes(section) && canEdit(state.app);
   return (
     <section className={`mb-review-section ${issue ? 'has-issue' : ''}`} aria-label={title}>
       <header className="mb-review-head">
@@ -30,7 +30,11 @@ function Section({ title, section, children, issue }: { title: string; section: 
 const Row = ({ k, children }: { k: string; children: ReactNode }) => <div className="mb-kv-row"><dt>{k}</dt><dd>{children}</dd></div>;
 const missing = (t = 'Not provided') => <span className="mb-missing">{t}</span>;
 
-/** Stage 6 — summary. Verified sections are locked; store presence and the rate review open a transactional edit. */
+/**
+ * Stage 6 — summary. Preparer: verified sections are locked; store presence and the rate review open a
+ * transactional edit; a registered business continues to the Authorization choice. Signer (after
+ * Nafath): the full application and the frozen offer, entirely read-only — no edit, no send-back.
+ */
 export function ReviewStep() {
   const { state, apply } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
@@ -41,6 +45,7 @@ export function ReviewStep() {
   const issues = reviewIssues(app);
   const has = (s: SectionId) => issues.some((i) => i.section === s);
   const eligible = contractEligible(app);
+  const signer = app.actor === 'signer';
   const person = eligiblePersons(app.persons.list).find((p) => p.id === app.persons.selectedId);
   const cert = app.certs.list.find((c) => c.id === app.certs.selectedId);
   const cat = app.categoryCheck;
@@ -49,10 +54,12 @@ export function ReviewStep() {
 
   return (
     <section className="mb-card mb-card-wide" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('review')} title="Review your application" description="Verified information is locked. You can still edit your store links and your rate-review request." titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('review', app)} title={signer ? 'Review the application' : 'Review your application'}
+        description={signer ? 'Read-only: this is exactly the version prepared for your signature, including the commercial offer.' : 'Verified information is locked. You can still edit your store links and your rate-review request.'} titleRef={titleRef} />
 
-      {issues.length === 0
-        ? <Alert tone="success" title="Everything is ready">{eligible ? 'Continue to the contract.' : 'Submit your application. Our team will complete the remaining verification.'}</Alert>
+      {signer ? <Alert tone="info" title="Nothing here can be changed">If something is wrong, do not sign. Contact Madfu Business support.</Alert>
+        : issues.length === 0
+        ? <Alert tone="success" title="Everything is ready">{cr ? 'Next, choose who authorizes and signs the application.' : eligible ? 'Continue to the contract.' : 'Submit your application. Our team will complete the remaining verification.'}</Alert>
         : (
           <Alert tone="warning" title={`${issues.length} item${issues.length > 1 ? 's' : ''} need${issues.length > 1 ? '' : 's'} attention`}>
             <ul className="mb-issue-list">{issues.map((i) => <li key={i.message}>{i.message} {EDITABLE_SECTIONS.includes(i.section) && <Button variant="link" size="sm" onClick={() => apply((s) => startEdit(s, i.section))}>Fix</Button>}</li>)}</ul>
@@ -72,7 +79,7 @@ export function ReviewStep() {
         <Section title={cr ? 'Verified business' : 'Verified Freelancer'} section="verified">
           {cr && <Row k="Registered name">{app.cr.record?.legalName ?? missing()}</Row>}
           {cr && <Row k="Registered activities">{app.cr.record ? app.cr.record.activities.map((a) => activityLabel(a.code)).join(' · ') : missing()}</Row>}
-          {cr && <Row k="Owner / manager">{person ? `${maskedName(person)} (${ROLE_LABEL[person.role]})` : missing('Not selected')}</Row>}
+          {cr && <Row k="Authorized by">{app.authorization.mode && person ? `${maskedName(person)} (${ROLE_LABEL[person.role]})` : <span className="mb-muted">Chosen after this review</span>}</Row>}
           {!cr && <Row k="Certificate">{cert ? <span className="mb-mono">{cert.number}</span> : missing()}</Row>}
           {!cr && cert && <Row k="Certificate activity">{activityLabel(cert.activity)}</Row>}
         </Section>
@@ -97,13 +104,13 @@ export function ReviewStep() {
             <Row k="Mobile">{v(app.contactMobileVerified, 'Verified', 'Pending')}</Row>
             {cr && <Row k="Commercial Registration">{v(app.cr.status === 'loaded', 'Retrieved', 'Pending')}</Row>}
             {!cr && <Row k="Freelancer Certificate">{v(cat?.source === 'CERTIFICATE', 'Retrieved', 'Pending')}</Row>}
-            <Row k="Mobile belongs to the verifying person">{v(app.authorizedMobileVerified, 'Confirmed', 'Our team will verify')}</Row>
-            <Row k="Nafath">{v(app.nafath.status === 'verified', 'Verified', 'Our team will verify')}</Row>
+            {(!cr || app.authorization.mode) && <Row k="Mobile belongs to the verifying person">{v(app.authorizedMobileVerified, 'Confirmed', cr ? 'Checked at authorization' : 'Our team will verify')}</Row>}
+            {(!cr || app.authorization.mode) && <Row k="Nafath">{v(app.nafath.status === 'verified', 'Verified', cr ? 'At authorization' : 'Our team will verify')}</Row>}
           </dl>
         </section>
       </div>
 
-      <StepNav onNext={() => apply(continueFromReview)} nextLabel={eligible ? 'Continue to contract' : 'Submit application'} nextDisabled={issues.length > 0} />
+      <StepNav onNext={() => apply(continueFromReview)} nextLabel={signer || eligible ? 'Continue to contract' : cr ? 'Continue to authorization' : 'Submit application'} nextDisabled={!signer && issues.length > 0} hideBack={signer} />
     </section>
   );
 }

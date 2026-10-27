@@ -1,18 +1,20 @@
-import { STATUS_COPY, STATUS_TRACK } from '../model/copy';
+import { STATUS_COPY, STATUS_TRACK, customerStatus } from '../model/copy';
 import { useProposed, useStepFocus } from '../store';
 import { Alert, StepHeader } from '../ui/components';
 import { IconCheck } from '../ui/icons';
 
 /**
  * Application Progress. A submitted application opens here after the registered-mobile code. It shows
- * the status only: Review, Contract and submission are never reopened. No SLA is invented.
+ * the status only: Review, Contract and submission are never reopened. An internally Not Eligible
+ * application shows "Under review" (the team contacts the applicant). No SLA is invented.
  */
 export function StatusStep() {
   const { state } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const { app } = state;
-  const copy = STATUS_COPY[app.status] ?? STATUS_COPY.SUBMITTED!;
-  const at = STATUS_TRACK.indexOf(app.status);
+  const shown = customerStatus(app.status);
+  const copy = STATUS_COPY[shown] ?? STATUS_COPY.SUBMITTED!;
+  const at = STATUS_TRACK.indexOf(shown);
   const offTrack = at < 0;
 
   return (
@@ -34,8 +36,8 @@ export function StatusStep() {
           );
         })}
       </ol>
-      {app.status === 'ACTION_REQUIRED' && <Alert tone="warning" title="Action required">{STATUS_COPY.ACTION_REQUIRED!.body}</Alert>}
-      {app.status === 'UNABLE_TO_PROCEED' && <Alert tone="warning" title="Unable to proceed">{STATUS_COPY.UNABLE_TO_PROCEED!.body}</Alert>}
+      {shown === 'ACTION_REQUIRED' && <Alert tone="warning" title="Action required">{STATUS_COPY.ACTION_REQUIRED!.body}</Alert>}
+      {shown === 'UNABLE_TO_PROCEED' && <Alert tone="warning" title="Unable to proceed">{STATUS_COPY.UNABLE_TO_PROCEED!.body}</Alert>}
       <p className="mb-small mb-muted">Your submitted application can no longer be changed here. If something needs to change, our team will contact you.</p>
     </section>
   );

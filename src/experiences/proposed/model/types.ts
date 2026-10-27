@@ -1,8 +1,9 @@
 /**
- * Madfu Proposed (Madfu Business) — product-design model, v4.
+ * Madfu Proposed (Madfu Business) — product-design model, v6.
  *
- * Source of truth: the agreed product decisions of 2026-10-27 ("identifier before OTP, lifecycle
- * routing"). They supersede the KYB-first v3 journey of 2026-10-23 wherever they differ. Principle:
+ * Source of truth: the agreed product decisions of 2026-10-28 (Not Eligible is internal only, CR
+ * authorization after Review with a signer handoff, Freelancer certificate before Nafath, live-merchant
+ * popup). They build on the 2026-10-27 decisions ("identifier before OTP, lifecycle routing"). Principle:
  * ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification
  * unnecessarily, and never let a returning visitor reach an application without the registered mobile.
  *
@@ -30,16 +31,11 @@ export interface Kyb {
 
 /**
  * Eligibility has exactly two top-level outcomes. Revenue never routes: every revenue band can
- * self-onboard when otherwise eligible (revenue is a risk input only).
+ * self-onboard when otherwise eligible (revenue is a risk input only). NOT_ELIGIBLE is INTERNAL: the
+ * applicant continues through Identify + OTP, the application is captured and they see the normal
+ * "Application submitted" / "Under review" experience. The reason is never shown; the team calls them.
  */
 export type EligibilityResult = 'ELIGIBLE' | 'NOT_ELIGIBLE';
-
-/**
- * When a NOT_ELIGIBLE result is shown. 'KYB' = immediately on Page 1 (Freelancer without certificate:
- * no identifier, mobile or OTP). 'AFTER_OTP' = the applicant continues to Identify + OTP so Madfu keeps
- * a verified contact, then sees Not Eligible (unsupported category / activity). No paid check runs.
- */
-export type NotEligibleAt = 'KYB' | 'AFTER_OTP';
 
 export type ReasonCode =
   | 'OK'
@@ -49,7 +45,6 @@ export type ReasonCode =
   | 'CHANNEL_NOT_SUPPORTED'
   | 'FL_CERT_REQUIRED'
   | 'FL_CERT_NOT_FOUND'
-  | 'NOT_OWNER_MANAGER'
   | 'NO_OWNER_MANAGER_ON_CR'
   | 'FL_IBAN_NOT_LINKED'
   | 'ACTIVITY_REGULATED'
@@ -59,8 +54,6 @@ export type ReasonCode =
 
 export interface Eligibility {
   result: EligibilityResult;
-  /** null when ELIGIBLE. */
-  notEligibleAt: NotEligibleAt | null;
   reason: ReasonCode;
   ruleId: string;
   ruleset: string;
@@ -80,12 +73,16 @@ export type StepId =
   | 'kyb'
   | 'identify'
   | 'otp'
-  | 'persons'
-  | 'nafath'
+  | 'cr'
   | 'certificates'
+  | 'nafath'
   | 'business'
   | 'commercial'
   | 'review'
+  | 'authorize'
+  | 'handoff'
+  | 'delegation'
+  | 'signer'
   | 'contract'
   | 'outcome'
   | 'status'
@@ -93,14 +90,21 @@ export type StepId =
 
 export type StageId = 'kyb' | 'identify' | 'verification' | 'details' | 'commercial' | 'review' | 'contract' | 'outcome';
 
+/** Who is using this browser session: the preparer (registered mobile) or the CR signer (secure link). */
+export type Actor = 'preparer' | 'signer';
+
 /**
- * Application lifecycle. Routing after OTP and on every resume reads THIS, never completion alone.
- * QUALIFICATION / OTP_PENDING exist before the record is persisted.
+ * Application lifecycle. Routing after OTP and on every resume reads THIS together with the
+ * authorization lifecycle (`Authorization.status`), never page completion alone.
+ * QUALIFICATION / OTP_PENDING exist before the record is persisted. AWAITING_AUTHORIZATION = the
+ * application is complete and frozen while a CR signer handoff exists. NOT_ELIGIBLE is internal only:
+ * the merchant sees Application submitted / Under review.
  */
 export type Lifecycle =
   | 'QUALIFICATION'
   | 'OTP_PENDING'
   | 'DRAFT'
+  | 'AWAITING_AUTHORIZATION'
   | 'NOT_ELIGIBLE'
   | 'PAUSED_CR'
   | 'SUBMITTED'
@@ -110,11 +114,15 @@ export type Lifecycle =
   | 'UNABLE_TO_PROCEED'
   | 'LIVE';
 
-/** Merchant-facing end pages (step 'outcome'). The Application Progress page is the 'status' step. */
+/**
+ * Merchant-facing end pages (step 'outcome'). The Application Progress page is the 'status' step.
+ * RECEIVED = an internally Not Eligible application was captured: the merchant sees exactly the same
+ * "submitted" page as SUBMITTED; only the internal record differs.
+ */
 export type OutcomeKind =
   | 'SUBMITTED'
   | 'SUBMITTED_MANUAL'
-  | 'NOT_ELIGIBLE'
+  | 'RECEIVED'
   | 'PAUSED_CR';
 
 /** Internal flags. Never shown to the applicant as reasons. */
@@ -128,12 +136,13 @@ export type Flag =
   | 'MOBILE_OWNERSHIP_UNVERIFIED'
   | 'SALES_FOLLOW_UP'
   | 'COMMERCIAL_RATE_REVIEW_REQUESTED'
-  | 'CERTIFICATE_INCONSISTENT';
+  | 'CERTIFICATE_INCONSISTENT'
+  | 'AUTHORIZATION_LIMIT_REACHED';
 
 /* ------------------------------------------------------------------ existence check (internal) */
 
 /** Result of the cheap internal lookup by CR / National ID. No provider is called. */
-export type Existence = 'new' | 'incomplete' | 'submitted' | 'live' | 'paused' | 'not_eligible';
+export type Existence = 'new' | 'incomplete' | 'awaiting_authorization' | 'submitted' | 'live' | 'paused' | 'not_eligible';
 
 /* ------------------------------------------------------------------ government data */
 
@@ -179,10 +188,13 @@ export interface CategoryCheck {
 /* ------------------------------------------------------------------ risk (backend only) */
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+/** Conceptual decision outcomes of the risk level (illustrative mapping; never a merchant-facing rejection). */
+export type RiskDecision = 'PROCEED_FULLY' | 'PROCEED_CONTROLLED' | 'HOLD';
 export interface RiskAssessment {
   model: string;
   score: number;
   level: RiskLevel;
+  decision: RiskDecision;
   factors: Array<{ factor: string; value: string; points: number }>;
 }
 
@@ -238,7 +250,7 @@ export interface VerificationRecord {
 
 export interface LedgerEntry {
   kind: 'internal' | 'otp' | 'call' | 'reuse' | 'invalidate';
-  check: VerificationType | 'OTP' | 'EXISTENCE' | 'ELIGIBILITY' | 'RISK';
+  check: VerificationType | 'OTP' | 'EXISTENCE' | 'ELIGIBILITY' | 'RISK' | 'AUTHORIZATION';
   at: string;
   note: string;
 }
@@ -251,6 +263,77 @@ export interface AgreedOffer {
   pricingSub: string;
   standardRate: number;
   at: string;
+}
+
+/* ------------------------------------------------------------------ CR authorization + signer handoff */
+
+/** How the CR application is authorized after Review: by the preparer, or handed to another signer. */
+export type AuthMode = 'self' | 'signer';
+
+/**
+ * Authorization lifecycle — separate from the application lifecycle. HANDOFF_CREATED is transient
+ * (record created, SMS not yet sent). The preparer-facing labels are configuration (copy.ts).
+ */
+export type AuthStatus =
+  | 'NOT_STARTED'
+  | 'HANDOFF_CREATED'
+  | 'AWAITING_SIGNER'
+  | 'NAFATH_PENDING'
+  | 'NAFATH_VERIFIED'
+  | 'CONTRACT_PENDING'
+  | 'COMPLETED'
+  | 'EXPIRED'
+  | 'CANCELLED';
+
+export type AuthEndReason = 'EXPIRED' | 'SIGNER_MOBILE_MISMATCH' | 'SIGNER_NAFATH_FAILED';
+
+/**
+ * One signer handoff = one authorization version of the SAME application (never a new application).
+ * The audit trail keeps every version.
+ */
+export interface HandoffVersion {
+  version: number;
+  applicationId: string;
+  signerId: string;
+  /** First and last name only. */
+  signerName: string;
+  signerIdMasked: string;
+  /** Stored backend-side; every screen masks it. */
+  signerMobile: string;
+  createdAt: string;
+  expiresAt: string;
+  status: AuthStatus;
+  initiatedBy: string;
+  endReason: AuthEndReason | null;
+  endedAt: string | null;
+  completedAt: string | null;
+  /** Fingerprint of the frozen application + offer the signer reviews. */
+  snapshot: string;
+}
+
+/** Phase 2 (demo only): delegated signer types and their verification states. */
+export type DelegationType = 'MOJ' | 'COMPANY_DOC' | 'OTHER_DOC';
+export type DelegationStatus = 'idle' | 'valid' | 'invalid' | 'under_review' | 'approved' | 'rejected';
+
+export interface Authorization {
+  /** Draft choice on the Authorization page; fixed once Nafath (self) or a handoff starts. */
+  mode: AuthMode | null;
+  status: AuthStatus;
+  versions: HandoffVersion[];
+  /** Versions granted above the limit by an internal / manual unlock. */
+  extraVersions: number;
+  limitReached: boolean;
+  /** Set when the first handoff starts: application data and offer can no longer change. */
+  frozenAt: string | null;
+  frozenSnapshot: string | null;
+  /** PHASE 2 — demo only, no production behaviour. */
+  delegation: { type: DelegationType | null; status: DelegationStatus };
+}
+
+/** The signer's secure-link session (no OTP in Phase 1; Nafath is the strong identity step). */
+export interface SignerSession {
+  version: number;
+  link: 'active' | 'expired' | 'ended' | 'completed' | 'invalid';
 }
 
 /* ------------------------------------------------------------------ application */
@@ -287,9 +370,11 @@ export interface Application {
   eligibility: Eligibility | null;
   kybSnapshot: KybSnapshot | null;
 
-  /** Page 2: identifier, mobile and the self-onboarding prerequisite declaration. */
+  /** Page 2: identifier, mobile and (eligible Freelancers only) the IBAN-linkage declaration. */
   identity: { identifier: string; mobile: string; prerequisite: 'yes' | 'no' | null };
   existence: Existence | null;
+  /** An existing record was found and the newly entered mobile differs from its stored mobile: never used. */
+  enteredMobileIgnored: boolean;
   /** Identify-page throttle (rate limit / bot challenge simulation). */
   throttled: boolean;
   identifyChecks: number;
@@ -302,6 +387,9 @@ export interface Application {
   authorizedMobileVerified: boolean;
   /** OTP passed in THIS browser session. A Continue link or new visit starts a new session. */
   sessionVerified: boolean;
+  /** Who is using this session. A signer session comes from the secure SMS link (no OTP). */
+  actor: Actor;
+  signerSession: SignerSession | null;
   /** New mobile entered after a mobile ↔ National ID mismatch (pending its OTP). */
   pendingMobile: string;
   otp: OtpState;
@@ -322,10 +410,9 @@ export interface Application {
     number: string;
     verifiedFor: string | null;
   };
+  /** Freelancer: retrieved by National ID BEFORE Nafath (one call); chosen, never uploaded. */
   certs: {
-    /** Backend-only existence / retrieval before Nafath. Details stay hidden until Nafath succeeds. */
-    precheck: 'idle' | 'found' | 'none' | 'unavailable';
-    status: 'idle' | 'loaded';
+    status: 'idle' | 'loaded' | 'unavailable';
     tries: number;
     list: Certificate[];
     selectedId: string | null;
@@ -349,6 +436,8 @@ export interface Application {
     agreed: AgreedOffer | null;
   };
   contract: { status: 'unavailable' | 'ready' | 'accepted'; acceptedAt: string };
+  /** CR only: who authorizes and signs, and the signer handoff versions. */
+  authorization: Authorization;
 
   verifications: Partial<Record<VerificationType, VerificationRecord>>;
   ledger: LedgerEntry[];
@@ -386,7 +475,7 @@ export interface Sim {
   iban: IbanResult[];
 }
 
-export interface SmsMessage { to: string; kind: 'otp' | 'continue-link'; text: string; token?: string; at: string }
+export interface SmsMessage { to: string; kind: 'otp' | 'continue-link' | 'signer-link'; text: string; token?: string; at: string }
 
 export interface Backend {
   /** Stage-1 qualification records (temporary until linked). */
@@ -396,10 +485,15 @@ export interface Backend {
   identities: Record<string, string>;
   /** Live merchants (merchant account exists): identifier -> registered account mobile. */
   merchants: Record<string, { mobile: string }>;
-  /** Not Eligible records with a verified contact (kept so Madfu can reach them if eligibility changes). */
+  /**
+   * Internally Not Eligible applications (verified contact, internal reason). The applicant saw
+   * "Application submitted"; the team contacts them and explains the reason manually.
+   */
   notEligible: Array<{ applicationId: string; qualificationId: string; kyb: Kyb; identifier: string; mobile: string; reason: ReasonCode; at: string }>;
   /** Continue-link token -> application id. The link identifies; OTP authorises. Revoked on submit. */
   tokens: Record<string, string>;
+  /** Signer secure-link token -> application + authorization version. Revoked on expiry / end / completion. */
+  signerLinks: Record<string, { applicationId: string; version: number }>;
   sms: SmsMessage[];
 }
 

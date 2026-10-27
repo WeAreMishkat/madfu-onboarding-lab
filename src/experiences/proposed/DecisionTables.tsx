@@ -1,5 +1,5 @@
 import { OpenItemsList } from './MasterBoards';
-import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS, type Table } from './model/decisions';
+import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISIONS_DATE, DECISION_TABLES, OTHER_OPEN_POINTS, type Table } from './model/decisions';
 
 export function DecisionTable({ table }: { table: Table }) {
   return (
@@ -24,7 +24,7 @@ export function DecisionTables() {
   return (
     <div className="dt-page">
       <section className="dt" aria-label="Confirmed product decisions">
-        <h2 className="dt-title">Confirmed product decisions (2026-10-27)</h2>
+        <h2 className="dt-title">Confirmed product decisions ({DECISIONS_DATE})</h2>
         <ConfirmedDecisionsList />
       </section>
       <section className="dt" aria-label="Open decisions">

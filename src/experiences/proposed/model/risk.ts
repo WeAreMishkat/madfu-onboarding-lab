@@ -9,7 +9,7 @@
  * SYNTHETIC DEMO WEIGHTS. Production factors, weights and thresholds are open RISK decisions.
  */
 import { findSub } from './eligibility';
-import type { Application, ReasonCode, RiskAssessment, RiskLevel } from './types';
+import type { Application, ReasonCode, RiskAssessment, RiskDecision, RiskLevel } from './types';
 
 export const RISK_MODEL_VERSION = 'RISK-v1-demo (2026-10-27)';
 
@@ -27,7 +27,12 @@ export const RISK_CONFIG = {
   nationalAddress: { VALID: 0, MISSING: 1, EXPIRED: 1 } as Record<string, number>,
   /** Placeholders: fraud, credit and compliance signals are not modelled in the prototype. */
   notModelled: ['Fraud signals', 'Credit signals', 'Compliance / screening signals'],
-  thresholds: { mediumFrom: 4, highFrom: 7 }
+  thresholds: { mediumFrom: 4, highFrom: 7 },
+  /**
+   * ILLUSTRATIVE mapping of the risk level to the conceptual decision outcomes. The objective is a
+   * merchant risk level, not an automatic rejection: no outcome here changes the merchant journey.
+   */
+  decisionByLevel: { LOW: 'PROCEED_FULLY', MEDIUM: 'PROCEED_CONTROLLED', HIGH: 'HOLD' } as Record<RiskLevel, RiskDecision>
 };
 
 export const levelFor = (score: number): RiskLevel => (score >= RISK_CONFIG.thresholds.highFrom ? 'HIGH' : score >= RISK_CONFIG.thresholds.mediumFrom ? 'MEDIUM' : 'LOW');
@@ -47,24 +52,27 @@ export function assessRisk(app: Application): RiskAssessment {
   const group = findSub(sub)?.group.id ?? '';
   factors.push({ factor: app.categoryCheck ? 'Verified category' : 'Declared category', value: sub, points: RISK_CONFIG.categoryGroup[group] ?? 1 });
   const score = factors.reduce((n, f) => n + f.points, 0);
-  return { model: RISK_MODEL_VERSION, score, level: levelFor(score), factors };
+  const level = levelFor(score);
+  return { model: RISK_MODEL_VERSION, score, level, decision: RISK_CONFIG.decisionByLevel[level], factors };
 }
+
+const CAPTURED = 'Internal Not Eligible → merchant sees Application submitted; team contacts them';
 
 /**
  * Not Eligible rules known to the prototype (each is a rule, never a score), plus the paused CR route.
- * "Not Eligible" is the only merchant-facing term; the reason code stays internal.
+ * Every Not Eligible result is INTERNAL: the application is captured, the merchant sees the normal
+ * submission / progress experience and the reason code is never shown.
  */
 export const HARD_BLOCKS: Array<{ reason: ReasonCode; where: string; source: string; route: string }> = [
-  { reason: 'FL_CERT_REQUIRED', where: 'Page 1', source: 'Applicant type', route: 'Not Eligible immediately — no Identify, no OTP' },
-  { reason: 'CATEGORY_NOT_SUPPORTED', where: 'Page 1 (declared) and after retrieval (verified)', source: 'Eligibility Matrix', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
-  { reason: 'REGULATORY_RESTRICTION', where: 'Page 1', source: 'Eligibility Matrix (regulatory)', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
-  { reason: 'ACTIVITY_REQUIRES_CR', where: 'Page 1 / certificate activity', source: 'Eligibility Matrix (regulatory)', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
-  { reason: 'CHANNEL_NOT_SUPPORTED', where: 'Page 1', source: 'Eligibility Matrix', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
-  { reason: 'ACTIVITY_REGULATED', where: 'After CR / certificate retrieval', source: 'Government activity mapping', route: 'Not Eligible, personalised reason' },
-  { reason: 'NOT_OWNER_MANAGER', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Not Eligible; delegated onboarding is out of V1' },
-  { reason: 'NO_OWNER_MANAGER_ON_CR', where: 'After people retrieval', source: 'Government associated parties', route: 'Not Eligible; declaration not confirmed by government data' },
-  { reason: 'FL_IBAN_NOT_LINKED', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Not Eligible until the bank account is linked' },
-  { reason: 'FL_CERT_NOT_FOUND', where: 'Certificate pre-check (before Nafath)', source: 'Freelance platform', route: 'Not Eligible; no Nafath call' },
+  { reason: 'FL_CERT_REQUIRED', where: 'Page 1', source: 'Applicant type', route: `Identify → OTP → ${CAPTURED} · no paid check` },
+  { reason: 'CATEGORY_NOT_SUPPORTED', where: 'Page 1 (declared) and after retrieval (verified)', source: 'Eligibility Matrix', route: `Identify → OTP → ${CAPTURED} · no paid check` },
+  { reason: 'REGULATORY_RESTRICTION', where: 'Page 1', source: 'Eligibility Matrix (regulatory)', route: `Identify → OTP → ${CAPTURED} · no paid check` },
+  { reason: 'ACTIVITY_REQUIRES_CR', where: 'Page 1 / certificate activity', source: 'Eligibility Matrix (regulatory)', route: `Identify → OTP → ${CAPTURED} · no paid check` },
+  { reason: 'CHANNEL_NOT_SUPPORTED', where: 'Page 1', source: 'Eligibility Matrix', route: `Identify → OTP → ${CAPTURED} · no paid check` },
+  { reason: 'ACTIVITY_REGULATED', where: 'After CR / certificate retrieval', source: 'Government activity mapping', route: `${CAPTURED} · no further paid check` },
+  { reason: 'NO_OWNER_MANAGER_ON_CR', where: 'After CR people retrieval', source: 'Government associated parties', route: `${CAPTURED} · nobody on the CR can authorize in V1` },
+  { reason: 'FL_IBAN_NOT_LINKED', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: `${CAPTURED} · no paid check` },
+  { reason: 'FL_CERT_NOT_FOUND', where: 'Certificate retrieval (before Nafath)', source: 'Freelance platform', route: `${CAPTURED} · no Nafath call` },
   { reason: 'CR_EXPIRED', where: 'After CR retrieval', source: 'Government CR status', route: 'Paused: saved application + Sales recovery' },
   { reason: 'CR_SUSPENDED', where: 'After CR retrieval', source: 'Government CR status', route: 'Paused: saved application + Sales recovery' },
   { reason: 'CR_RESTRICTED', where: 'After CR retrieval', source: 'Government CR status (provisional)', route: 'Paused: saved application + Sales recovery' }

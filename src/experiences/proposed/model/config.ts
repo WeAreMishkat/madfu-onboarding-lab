@@ -3,22 +3,51 @@
  * activity mapping, risk, pricing and verification reuse live in their own modules). Anything a
  * product or compliance decision may still change lives in configuration, never in a screen component.
  */
-import type { ApplicantKind, Revenue } from './types';
+import type { ApplicantKind, Application, Revenue, StepId } from './types';
 
 /* ------------------------------------------------------------------ stages (one list for app, boards, docs) */
 
 export const STAGES = [
   { id: 'kyb', n: 1, label: 'Know Your Business', short: 'Business', steps: ['kyb'] },
   { id: 'identify', n: 2, label: 'Identify & Verify', short: 'Identify', steps: ['identify', 'otp'] },
-  { id: 'verification', n: 3, label: 'Business Verification', short: 'Verify', steps: ['persons', 'nafath', 'certificates'] },
+  { id: 'verification', n: 3, label: 'Business Verification', short: 'Verify', steps: ['cr', 'certificates', 'nafath'] },
   { id: 'details', n: 4, label: 'Business Details', short: 'Details', steps: ['business'] },
   { id: 'commercial', n: 5, label: 'Commercial Offer', short: 'Offer', steps: ['commercial'] },
   { id: 'review', n: 6, label: 'Review', short: 'Review', steps: ['review'] },
-  { id: 'contract', n: 7, label: 'Contract', short: 'Contract', steps: ['contract'] },
+  { id: 'contract', n: 7, label: 'Authorization & Contract', short: 'Sign', steps: ['authorize', 'handoff', 'delegation', 'signer', 'contract'] },
   { id: 'outcome', n: 8, label: 'Submit / Application Status', short: 'Status', steps: ['outcome', 'status', 'login'] }
 ] as const;
 
 export const stageOf = (step: string) => STAGES.find((s) => (s.steps as readonly string[]).includes(step)) ?? STAGES[0];
+
+/**
+ * Stage of a screen for THIS application: a registered business verifies with Nafath only after the
+ * Authorization choice (stage 7); a Freelancer verifies with Nafath right after the certificate (stage 3).
+ */
+export const stageFor = (step: StepId, app?: Pick<Application, 'kyb'>) =>
+  step === 'nafath' && app?.kyb.kind === 'CR' ? STAGES[6] : stageOf(step);
+
+/** The signer's own short journey (secure link; no OTP in Phase 1). */
+export const SIGNER_STAGES = [
+  { id: 'confirm', label: 'Authorization request', short: 'Request', steps: ['signer'] },
+  { id: 'nafath', label: 'Verify with Nafath', short: 'Nafath', steps: ['nafath'] },
+  { id: 'review', label: 'Review', short: 'Review', steps: ['review'] },
+  { id: 'contract', label: 'Contract', short: 'Sign', steps: ['contract'] },
+  { id: 'done', label: 'Submitted', short: 'Done', steps: ['outcome'] }
+] as const;
+
+/* ------------------------------------------------------------------ CR signer handoff (Phase 1) */
+
+/**
+ * Signer handoff rules. Configurable, never hard-coded in screens or transitions:
+ * - a secure signer link is valid for `expiryDays` (default 7);
+ * - at most `maxVersions` handoffs (authorization versions) of the SAME application within any
+ *   `windowDays` window (default 2 in 30 days). A further one needs an internal / manual unlock.
+ * There is no CR lock: the application stays the same application; versions are tracked separately.
+ */
+export const HANDOFF_RULES = { expiryDays: 7, maxVersions: 2, windowDays: 30 };
+export type HandoffRules = typeof HANDOFF_RULES;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /* ------------------------------------------------------------------ revenue */
 
@@ -46,9 +75,11 @@ export const KIND_OPTIONS: Array<{ value: ApplicantKind; label: string; descript
 export const kindLabel = (k: ApplicantKind | null) => KIND_OPTIONS.find((o) => o.value === k)?.label ?? '';
 export const isFreelancer = (k: ApplicantKind | null) => k === 'FL_CERT' || k === 'FL_NO_CERT';
 
-/** Page-2 prerequisite question per applicant type (eligible applicants only). */
+/**
+ * Page-2 prerequisite question per applicant type (eligible applicants only). A registered business has
+ * none: the preparer does not have to be an owner or manager — authorization is chosen after Review.
+ */
 export const PREREQUISITE_QUESTION: Partial<Record<ApplicantKind, string>> = {
-  CR: 'Are you an owner or manager registered on this CR?',
   FL_CERT: 'Is your IBAN linked to your Freelancer Certificate?'
 };
 
@@ -73,17 +104,6 @@ export const LIMITS = {
   ibanAttempts: 2,
   /** Retries for an unavailable provider in one session; the counter resets on resume. */
   providerRetries: 2
-};
-
-/* ------------------------------------------------------------------ open decisions as rule flags */
-
-export const RULE_FLAGS = {
-  /**
-   * PROVIDER / COMPLIANCE DECISION: may the Freelancer Certificate existence be checked BEFORE Nafath
-   * (cost order)? true = backend pre-check first; the applicant still sees Nafath → certificate.
-   * false = retrieve the certificates after Nafath (journey unchanged).
-   */
-  flCertificatePrecheckBeforeNafath: true
 };
 
 /* ------------------------------------------------------------------ cost assumptions (Internal view only) */

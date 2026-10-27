@@ -9,23 +9,24 @@ import { stageEyebrow } from './shared';
 
 /**
  * Stage 7 — Contract ONLY. Title, scrollable contract, short disclaimer, Back to review and ONE
- * primary action (there is no Decline):
- * Agree & Submit records the (simulated) acceptance AND submits the application, then the success
- * page opens. No checkbox, no second Submit, no plan selection. The standard commission appears as
- * contract content only.
+ * primary action (there is no Decline): Agree & Submit (preparer) or Agree & Sign (CR signer) records
+ * the (simulated) acceptance AND submits the application, then the success page opens. No checkbox,
+ * no second Submit, no plan selection. The (frozen) standard commission appears as contract content.
  * Acceptance mechanism is generic (provider not approved); Nafath is not the contract provider.
  */
 export function ContractStep() {
   const { state, apply } = useProposed();
   const titleRef = useStepFocus<HTMLHeadingElement>();
   const offer = state.app.commercial.agreed;
+  const signer = state.app.actor === 'signer';
+  const action = signer ? 'Agree & Sign' : 'Agree & Submit';
   const [busy, setBusy] = useState(false);
 
   const agree = async () => { setBusy(true); await wait(1000); setBusy(false); apply(agreeAndSubmit); };
 
   return (
     <section className="mb-card mb-card-wide" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('contract')} title="Merchant agreement" description="Please read the agreement. Agreeing submits your application." titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('contract', state.app)} title="Merchant agreement" description={signer ? 'Please read the agreement. Signing authorizes and submits the application on behalf of the business.' : 'Please read the agreement. Agreeing submits your application.'} titleRef={titleRef} />
 
       <div className="mb-contract-viewer">
         <div className="mb-contract-bar">
@@ -53,13 +54,13 @@ export function ContractStep() {
       </div>
 
       <p className="mb-contract-disclaimer">
-        By clicking <strong>Agree &amp; Submit</strong>, you confirm your acceptance of this agreement and the applicable terms, including the Privacy Policy, and submit your application.
+        By clicking <strong>{action}</strong>, you confirm your acceptance of this agreement and the applicable terms, including the Privacy Policy, and submit {signer ? 'the application on behalf of the business' : 'your application'}.
         <br /><span className="mb-small">Prototype copy — final wording subject to Legal review.</span>
       </p>
 
       <Actions split>
         <Button variant="ghost" iconLeft={<IconArrowLeft size={18} />} onClick={() => apply((s) => ({ ...s, app: { ...s.app, step: 'review' } }))}>Back to review</Button>
-        <Button size="lg" loading={busy} loadingLabel="Submitting…" onClick={() => void agree()}>Agree &amp; Submit</Button>
+        <Button size="lg" loading={busy} loadingLabel="Submitting…" onClick={() => void agree()}>{action}</Button>
       </Actions>
     </section>
   );

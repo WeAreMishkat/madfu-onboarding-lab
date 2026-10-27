@@ -10,11 +10,12 @@ import { StepNav } from './StepNav';
 type Errors = Partial<Record<'identifier' | 'mobile' | 'prerequisite', string>>;
 
 /**
- * Page 2 — identifier, mobile and (eligible applicants only) one prerequisite declaration. Only a
- * Registered Business or a Freelancer with a certificate reaches this page. An unsupported category
- * also comes here so a verified contact is kept, without being told it is eligible. Validation is
- * structural. On submit the backend checks its OWN records first (no provider): an existing
- * application or account gets the code on its registered mobile, never on the number typed here.
+ * Page 2 — identifier and mobile (+ the IBAN-linkage question for an eligible Freelancer). Everyone
+ * reaches this page; an internally Not Eligible applicant sees a neutral version (no "eligible"
+ * message, no question) and is never told the result. A registered business is not asked whether the
+ * applicant is an owner or manager: authorization is chosen after Review. Validation is structural. On
+ * submit the backend checks its OWN records first (no provider): an existing application or account
+ * gets the code on its stored mobile, never on the number typed here.
  */
 export function IdentifyStep() {
   const { state, apply, previewErrors } = useProposed();
@@ -47,14 +48,14 @@ export function IdentifyStep() {
     apply(submitIdentify);
   };
 
-  const title = capture ? 'Leave your details' : 'Good news: you can apply online';
+  const title = capture ? 'Continue your application' : 'Good news: you can apply online';
   const description = capture
     ? `Enter your ${cr ? 'Commercial Registration' : 'National ID'} and mobile number. We verify the number with a code.`
     : cr ? 'Enter your Commercial Registration and your mobile number.' : 'Enter your National ID and your mobile number.';
 
   return (
     <section className="mb-card mb-card-narrow" aria-labelledby="mb-step-title">
-      <StepHeader eyebrow={stageEyebrow('identify')} title={title} description={description} titleRef={titleRef} />
+      <StepHeader eyebrow={stageEyebrow('identify', state.app)} title={title} description={description} titleRef={titleRef} />
       {!capture && <div className="mb-eligible-chip"><VerifyBadge state="verified">Eligible for online onboarding</VerifyBadge></div>}
       <form className="mb-form" noValidate onSubmit={(ev) => { ev.preventDefault(); void next(); }}>
         <Field label={cr ? 'Commercial Registration (Unified Number)' : 'National ID Number'} hint={cr ? '10 digits, starts with 7.' : '10 digits, starts with 1.'} error={errors.identifier}>
@@ -71,12 +72,12 @@ export function IdentifyStep() {
         </Field>
         {asks && (
           <ChoiceGroup<'yes' | 'no'>
-            legend={PREREQUISITE_QUESTION[cr ? 'CR' : 'FL_CERT']!}
+            legend={PREREQUISITE_QUESTION.FL_CERT!}
             name="prerequisite"
             value={identity.prerequisite}
             columns={2}
             compact
-            hint={cr ? 'Online self-onboarding is available to the owners and managers registered on the CR.' : 'The bank account used for payouts must be linked to your Freelancer Certificate.'}
+            hint="The bank account used for payouts must be linked to your Freelancer Certificate."
             options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
             onChange={(v) => set({ prerequisite: v })}
             error={errors.prerequisite}

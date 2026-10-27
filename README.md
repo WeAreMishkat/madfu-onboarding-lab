@@ -18,7 +18,7 @@ An interactive product prototype for comparing merchant onboarding journeys side
 | `/tabby` | Tabby (benchmark) | Research evidence up to 2026-10-14 |
 | `/tamara` | Tamara (benchmark) | Research evidence up to 2026-10-14 |
 | `/madfu/current` | Madfu Current | Research evidence (TEST walks, 2026-10-12/13) |
-| `/madfu/proposed` | Madfu Proposed | Agreed product decisions, 27 Oct 2026 (v5: Eligible / Not Eligible; supersede the 23 Oct KYB-first journey where they differ) |
+| `/madfu/proposed` | Madfu Proposed | Agreed product decisions, 28 Oct 2026 (v6: internal Not Eligible, CR authorization + signer handoff; build on 27 Oct) |
 | `/madfu/proposed?view=boards` | Master Board (visual screen flow) and Detailed Logic Board | Same model and screens as the prototype |
 | `/madfu/proposed?view=rules` | Confirmed decisions, rule tables, open decisions | Computed from the prototype rules |
 | `/compare` | Comparison: Current vs Proposed, or all four | No scores, no ranking |
@@ -29,29 +29,31 @@ Documents, all generated from the same model and components as the app:
 - [`Madfu_Merchant_Onboarding_Wireframes.pdf`](https://wearemishkat.github.io/madfu-onboarding-lab/Madfu_Merchant_Onboarding_Wireframes.pdf) (every screen, boards, rule tables)
 - [`docs/MADFU_PROPOSED_JOURNEY.md`](docs/MADFU_PROPOSED_JOURNEY.md) (product rules, open decisions, scenarios)
 
-## Madfu Proposed in brief
+## Madfu## Madfu Proposed in brief
 
-**Source of truth:** agreed product decisions of 27 Oct 2026 (v5: eligibility simplified to Eligible / Not Eligible). They supersede the 23 Oct KYB-first journey where they differ.
+**Source of truth:** agreed product decisions of 28 Oct 2026 (v6), building on those of 27 Oct. They supersede v5, the 23 Oct KYB-first journey and the 15 Oct wireframe spec where they differ. Conflicts with v5 are listed in Rules & decisions ("Conflicts with the previous prototype").
 
-**Principle:** ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification unnecessarily, and never open an existing application without its registered mobile.
+**Principle:** ask cheaply first, verify expensively later, never ask twice, never repeat a paid verification unnecessarily, never open an existing application without its stored mobile, and never show an automatic rejection reason.
 
-**Eight stages:** 1 Know Your Business · 2 Identify & Verify · 3 Business Verification · 4 Business Details · 5 Commercial Offer · 6 Review · 7 Contract · 8 Submit / Application Status.
+**Eight workflows:** New Eligible CR Merchant · New Eligible Freelancer · Not Eligible Application · Existing In-Progress CR — Resume · Existing In-Progress Freelancer — Resume · Submitted Application · Existing Live Merchant · CR Merchant Signer Flow.
 
-- **Page 1 — Know Your Business:** applicant type, category, subcategory, annual revenue, sales channel. Nothing else (no URL, identity, mobile or OTP). Preliminary eligibility has **two outcomes only: Eligible or Not Eligible**. Revenue never routes (every band self-onboards when otherwise eligible; revenue is a risk input). Freelancer without a certificate → **Not Eligible immediately** (no Identify, no OTP). Unsupported category → continues to Identify + OTP (verified contact saved) → **Not Eligible** ("We’ve received your details"), with no paid check.
-- **Page 2 — identifier + mobile** (Registered Business or Freelancer with certificate only): CR / National ID, mobile and, for eligible applicants, one prerequisite declaration (CR: "Are you an owner or manager registered on this CR?"; Freelancer: "Is your IBAN linked to your Freelancer Certificate?"). An **internal existence check** (no provider) decides where the OTP goes: new → the entered mobile; incomplete / submitted / paused / not-eligible record or live merchant → the **registered** mobile (last 3 digits shown; no takeover).
-- **Routing after OTP** reads the **lifecycle status**: Not Eligible (details saved, personalised reason) · new CR · new Freelancer · resume (first unfinished stage) · Application Progress (submitted — never Review / Contract again) · merchant login (live). There is no Sales-lead route.
-- **Business Verification (CR):** CR data (status, age, several activities, National Address, entity) and owners / managers in the backend — no CR confirmation page. Expired / suspended CR → saved + Sales recovery (no Refresh). CR age is a **risk attribute** (synthetic backend risk model, separate from Not Eligible rules). The government activity becomes the **verified category** (pricing too).
-- **Freelancer cost order:** the certificate existence check runs **before Nafath** in the backend (rule flag; no certificate → Not Eligible, no Nafath cost); the applicant still sees Nafath → certificate.
-- **Mobile ↔ National ID before Nafath:** on a mismatch the applicant can use another mobile (new OTP, check again) without restarting; a second mismatch pauses verification.
-- **Business Details:** online store / Google Maps branch link by channel (scheme optional, Saudi / Arabic domains accepted); Freelancer IBAN linkage verified. No CR IBAN, VAT or branch count.
-- **Commercial Offer:** "Your Standard Offer" → Continue. No payment-plan selection (Merchant Portal later). "Want us to review a better commercial rate?" is a small collapsed link; the request is kept even without a file.
-- **Review:** verified sections locked; store presence and the rate review use a transactional edit (Cancel restores everything). **Contract:** Agree & Submit. **Resume:** Save & exit link → registered-mobile OTP → status-aware routing; an ordinary resume costs one OTP.
+**Eight stages:** 1 Know Your Business · 2 Identify & Verify · 3 Business Verification · 4 Business Details · 5 Commercial Offer · 6 Review · 7 Authorization & Contract · 8 Submit / Application Status.
 
-**Prototype Controls** (not merchant UI, open by default, light reviewer theme; a bottom sheet on phones): **This step** — Page Scenarios for the current screen only; **Start demo** — journey presets and received Continue links; **Internal view** — lifecycle, routing, eligibility, preliminary vs verified category, CR activities, risk, Not Eligible reason, registered / contact / authorised-person mobile, checks called / reused / invalidated, cost assumptions, next paid call, rate review, ledger.
+- **Shared start:** Know Your Business (applicant type, category, subcategory, annual revenue, sales channel — no URL) → Identification (CR / National ID + mobile; Freelancer also "IBAN linked to the certificate?") → OTP. Eligibility is decided **internally** (Eligible / Not Eligible) and never shown. Revenue never routes.
+- **Not Eligible Application:** Identify + OTP, the application is captured with the internal reason (`backend.notEligible`), and the merchant sees the normal **"Application submitted"** page (re-entry: "Under review"). The team contacts them. No paid check.
+- **Existing records:** internal existence check → OTP to the **stored** mobile only; a different entered mobile is never used or switched to. In progress → first unfinished CR / Freelancer step; awaiting authorization → status page; submitted → Application Progress; live → popup **"You already have an active account under this CR."** with a **Log in** button (no auto-redirect).
+- **New CR:** CR Verification (retrieved data; nobody chosen) → Business Details → Commercial Offer → Review → **Authorization choice**: myself (select yourself among owners / managers → mobile ↔ National ID → Nafath → Contract) or **Send to another signer** (owner / manager on the CR + their Nafath mobile).
+- **Signer handoff:** freezes application + offer, creates an authorization **version** of the same application, sends a secure SMS link (valid **7 days**, configurable), preparer sees status only (signer / mobile change = Phase 2). Signer: masked confirmation (no OTP) → mobile ↔ National ID → Nafath → read-only Review → Contract → Agree & Sign. Max **2 versions in 30 days**, then an internal unlock. Configuration: `model/config.ts` `HANDOFF_RULES`.
+- **New Freelancer:** Certificate (before Nafath; no certificate → no Nafath cost) → mobile ↔ National ID → Nafath → Business Details (+ IBAN linked to the certificate) → Commercial Offer → Review → Contract.
+- **Two state machines:** application lifecycle (QUALIFICATION … DRAFT · AWAITING_AUTHORIZATION · NOT_ELIGIBLE (internal) · PAUSED_CR · SUBMITTED … LIVE) and authorization lifecycle (NOT_STARTED · HANDOFF_CREATED · AWAITING_SIGNER · NAFATH_PENDING · NAFATH_VERIFIED · CONTRACT_PENDING · COMPLETED · EXPIRED · CANCELLED).
+- Unchanged: expired / suspended CR → saved + Sales; CR age = risk input (illustrative Proceed fully / controlled / Hold); no CR IBAN, VAT or branch count; standard offer only; transactional Review edit; Contract has no Decline.
+- **Phase 2 / future (demo only):** delegated signer (MOJ delegation, company / other document → Quality review, verified before Nafath), change signer / mobile, resend / revoke.
+
+**Prototype Controls** (not merchant UI): **This step** — Page Scenarios for the current screen (incl. handoff expiry, signer link, signer Nafath success / failure, internal unlock, delegation demo); **Start demo** — presets grouped by the eight workflows, received Continue and signer links; **Internal view** — actor, lifecycle, routing, resume stage, internal eligibility + not-eligible reason, risk, mobiles (stored vs entered), authorization status / version / signer / expiry / attempts / freeze / delegation / signing, checks and ledger. Reviewer-only "← Back to previous step" is kept.
 
 All values are synthetic. Open product and compliance decisions are listed in the app (Rules & decisions) and in the generated doc.
 
-## Run locally
+ocally
 
 ```bash
 npm install

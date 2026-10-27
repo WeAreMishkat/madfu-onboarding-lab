@@ -6,7 +6,7 @@ import { MasterBoardCanvas, MasterBoardPreview } from '@/experiences/proposed/Ma
 import { DETAILED_BOARD, REUSE_NOTE, splitMap, type JourneyMap } from '@/experiences/proposed/model/boards';
 import { BOARD_GEOMETRY } from '@/experiences/proposed/model/masterBoard';
 import { STAGES, UX_HANDOVER_NOTE } from '@/experiences/proposed/model/config';
-import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS } from '@/experiences/proposed/model/decisions';
+import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS, PHASE_1, PHASE_2 } from '@/experiences/proposed/model/decisions';
 import { SCENARIOS } from '@/experiences/proposed/model/scenarios';
 import { SNAPSHOTS, type Snapshot, type SnapshotSection } from '@/experiences/proposed/print/snapshots';
 import { ProposedFrame } from '@/experiences/proposed/ProposedPage';
@@ -18,10 +18,10 @@ import '@/styles/print.css';
  * Print-only routes. Every screen is rendered by the same step components as the prototype; every
  * board and table from the same model.
  *   /print/wireframes      Madfu_Merchant_Onboarding_Wireframes.pdf     1600 × 1300 px pages
- *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      5560 × 3010 px (visual screen flow)
+ *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      6240 × 3900 px (visual screen flow)
  *   /print/board-detailed  Madfu_Proposed_Detailed_Master_Board.pdf    2000 × 1250 px pages
  */
-const SPEC_VERSION = 'Agreed product decisions, 27 Oct 2026 (supersede the 23 Oct KYB-first journey and the 15 Oct wireframe specification where they differ)';
+const SPEC_VERSION = 'Agreed product decisions, 28 Oct 2026, building on 27 Oct (supersede v5, the 23 Oct KYB-first journey and the 15 Oct wireframe specification where they differ)';
 
 function usePrintReady(title: string) {
   useEffect(() => {
@@ -84,7 +84,9 @@ const SECTION_LABEL: Record<SnapshotSection, string> = {
   details: `Stage 4 · ${STAGES[3].label}`,
   commercial: `Stage 5 · ${STAGES[4].label}`,
   review: `Stage 6 · ${STAGES[5].label}`,
-  contract: `Stages 7–8 · ${STAGES[6].label} and ${STAGES[7].label}`,
+  authorize: `Stage 7 · ${STAGES[6].label}: authorization choice and signer handoff`,
+  signer: `Stage 7 · ${STAGES[6].label}: CR signer`,
+  contract: `Stages 7–8 · Contract and ${STAGES[7].label}`,
   validation: 'Validation and error examples'
 };
 
@@ -114,13 +116,13 @@ export default function PrintWireframes() {
   pages.push(
     <Page key="principles" section="Introduction" title="Principles" n={next()}>
       <ol className="pw-principles">
-        <li><strong>Ask cheaply first, verify expensively later.</strong> Five Page-1 answers decide eligibility before any identity, OTP or paid check; an internal existence check runs before the code.</li>
-        <li><strong>Access belongs to the registered mobile.</strong> Merchant entity, application and user are separate: an existing application or account opens only with a code to its registered mobile.</li>
-        <li><strong>Lifecycle first.</strong> A returning applicant is routed by status: draft → resume, submitted → Application Progress, live → login.</li>
-        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused; the Freelancer certificate is checked before Nafath; resume normally costs one OTP.</li>
-        <li><strong>Government data is authoritative.</strong> After retrieval, the CR / certificate activity decides the category and the price; verified sections are locked.</li>
-        <li><strong>Hard rules and risk are separate.</strong> A hard block stops with a personalised reason; CR age and other factors only score risk in the backend.</li>
-        <li><strong>Simple commercial step.</strong> The standard offer → Continue; plans are configured later; a better-rate review is optional and never blocks.</li>
+        <li><strong>Ask cheaply first, verify expensively later.</strong> Five Page-1 answers decide eligibility internally before any identity, OTP or paid check; an internal existence check runs before the code.</li>
+        <li><strong>No automatic rejection on screen.</strong> Not Eligible is internal: the applicant sees Application submitted / Under review and the team explains the reason personally.</li>
+        <li><strong>Access belongs to the stored mobile.</strong> Merchant entity, application and user are separate: an existing application or account opens only with a code to its stored mobile; a new mobile never takes over.</li>
+        <li><strong>Lifecycle and authorization first.</strong> A returning applicant is routed by status: draft → resume, awaiting authorization → status, submitted → Application Progress, live → active-account popup.</li>
+        <li><strong>One direction, one version.</strong> A CR signer reviews and signs exactly the frozen application and offer, after Nafath; no send-back loop; versions are tracked on the same application.</li>
+        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused; the Freelancer certificate comes before Nafath; resume normally costs one OTP.</li>
+        <li><strong>Hard rules and risk are separate.</strong> Hard rules capture internally; CR age and other factors only score risk in the backend.</li>
       </ol>
     </Page>
   );
@@ -132,11 +134,20 @@ export default function PrintWireframes() {
   const snaps = (s: SnapshotSection) => SNAPSHOTS.filter((x) => x.section === s);
   const panel = (id: string) => DETAILED_BOARD.find((m) => m.id === id)!;
   const order: Array<[SnapshotSection, string[]]> = [
-    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr', 'nafath']], ['fl', ['fl']], ['details', ['details']], ['commercial', ['commercial']], ['review', ['review']], ['contract', ['contract', 'reuse']], ['validation', []]
+    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr']], ['fl', ['fl', 'nafath']], ['details', ['details']], ['commercial', ['commercial']], ['review', ['review']],
+    ['authorize', ['authorize']], ['signer', ['signer']], ['contract', ['contract', 'reuse', 'states']], ['validation', []]
   ];
   pages.push(
-    <Page key="confirmed" section="Introduction" title="Confirmed product decisions" caption="27 Oct 2026" n={next()}>
+    <Page key="confirmed" section="Introduction" title="Confirmed product decisions" caption="28 Oct 2026" n={next()}>
       <ol className="pw-list pw-compact">{CONFIRMED_DECISIONS.map((d) => <li key={d}>{d}</li>)}</ol>
+    </Page>
+  );
+  pages.push(
+    <Page key="phases" section="Introduction" title="Phase 1 vs Phase 2" n={next()}>
+      <h3 className="pw-sub">PHASE 1</h3>
+      <ul className="pw-list">{PHASE_1.map((x) => <li key={x}>{x}</li>)}</ul>
+      <h3 className="pw-sub">PHASE 2 / FUTURE</h3>
+      <ul className="pw-list">{PHASE_2.map((x) => <li key={x}>{x}</li>)}</ul>
     </Page>
   );
   for (const [section, panels] of order) {

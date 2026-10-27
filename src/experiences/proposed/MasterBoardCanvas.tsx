@@ -38,7 +38,7 @@ function Box({ b }: { b: BoardBox }) {
   if (b.tone === 'lane') {
     return (
       <div className="mbx-box mbx-lane" style={style} data-box={b.id}>
-        <p className="mbx-lane-eyebrow">New · eligible</p>
+        <p className="mbx-lane-eyebrow">{b.eyebrow ?? 'New · eligible'}</p>
         <p className="mbx-lane-title">{b.title}</p>
         <p className="mbx-lane-caption">{b.caption}</p>
       </div>
@@ -79,7 +79,7 @@ export function MasterBoardCanvas() {
           </marker>
         </defs>
         {BOARD_ARROWS.map((a) => (
-          <path key={a.id} data-arrow={a.id} d={a.points.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ')} className="mbx-line" markerEnd="url(#mbx-head)" />
+          <path key={a.id} data-arrow={a.id} d={a.points.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ')} className={`mbx-line ${a.dashed ? 'is-dashed' : ''}`} markerEnd="url(#mbx-head)" />
         ))}
       </svg>
       {BOARD_ARROWS.flatMap((a) => (a.pills ?? []).map((p) => <Pill key={`${a.id}-${p.text}`} p={p} />))}

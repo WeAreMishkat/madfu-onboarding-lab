@@ -9,16 +9,19 @@ import { IconArrowLeft, IconLock, IconPhone } from '../ui/icons';
 
 const EXISTING_TITLE = {
   incomplete: 'An application is already in progress for this business.',
+  awaiting_authorization: 'An application is already in progress for this business.',
   submitted: 'An application has already been submitted for this business.',
   live: 'This business already has a Madfu account.',
   paused: 'An application is already saved for this business.',
-  not_eligible: 'We already have your details for this business.'
+  // Internally Not Eligible: deliberately the same wording as a submitted application.
+  not_eligible: 'An application has already been submitted for this business.'
 } as const;
 
 /**
  * SMS code for every purpose. New application → the entered mobile. Existing application or account
- * (Page 2 or Continue link) → the REGISTERED mobile, last three digits only; nothing about the
- * application is shown before the code. Mobile correction → the new mobile.
+ * (Page 2 or Continue link) → the STORED mobile, last three digits only; a different number typed on
+ * Page 2 is never used and cannot be switched to; nothing about the application is shown before the
+ * code. Mobile correction → the new mobile.
  */
 export function OtpStep() {
   const { state, apply, isStatic } = useProposed();
@@ -66,6 +69,9 @@ export function OtpStep() {
     <section className="mb-card mb-card-narrow" aria-labelledby="mb-step-title">
       <div className="mb-icon-tile" aria-hidden="true">{registered ? <IconLock size={22} /> : <IconPhone size={22} />}</div>
       <StepHeader title={title} description={<>{sentTo} The code is valid for {LIMITS.otpValidityMinutes} minutes.</>} titleRef={titleRef} />
+      {registered && state.app.enteredMobileIgnored && (
+        <Alert tone="info">For your security, an existing application can only be continued with the mobile number already registered on it.</Alert>
+      )}
       <form className="mb-form" noValidate onSubmit={(e) => { e.preventDefault(); void verify(); }}>
         <CodeInput
           label="Verification code"

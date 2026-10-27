@@ -6,14 +6,16 @@
  * simulated outcome is exactly what the real screen would produce. The Prototype Controls panel renders
  * only the definition of the current step; there is no global scenario matrix inside the journey.
  */
-import { LIMITS } from './config';
+import { HANDOFF_RULES, LIMITS } from './config';
 import { DEMO, DEMO_SMS_CODE, demoIban, eligiblePersons } from './mock';
 import {
-  addEvidence, asksPrerequisite, editMobileFromOtp, expireOtp, failUpload, finishIbanCheck, goLive, loadCertificates, nafathResult,
-  requestRateReview, resendOtp, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendToNafath, setIban,
-  setIdentity, setKyb, setPresence, setReviewStatus, startEdit, startIbanCheck, verifyOtp, withdrawRateReview
+  activeVersion, addEvidence, asksPrerequisite, canStartHandoff, checkExpiry, chooseAuthMode, createHandoff, currentVersion, delegationResult,
+  editMobileFromOtp, expireOtp, failUpload, finishIbanCheck, goLive, latestSignerToken, leaveSession, loadCertificates, manualUnlock, nafathResult,
+  openSignerLink, requestRateReview, resendOtp, restartAuthorization, runBusinessVerification, salesRecoverCr, selectPerson, sendToNafath,
+  setDelegationType, setIban, setIdentity, setKyb, setPresence, setReviewStatus, signerStartNafath, startEdit, startIbanCheck,
+  verifyOtp, withdrawRateReview
 } from './state';
-import type { Application, CertificatesResult, Existence, IbanResult, Kyb, Lifecycle, MobileMatchResult, NafathResult, PersonsResult, ProposedState, Sim, StepId } from './types';
+import type { Application, CertificatesResult, DelegationStatus, DelegationType, Existence, IbanResult, Kyb, Lifecycle, MobileMatchResult, NafathResult, PersonsResult, ProposedState, Sim, StepId } from './types';
 
 export interface PageOption {
   id: string;
@@ -55,15 +57,15 @@ const unsupported = (s: ProposedState) => {
 
 const kyb: PageDef = {
   title: 'Know Your Business',
-  intro: 'Preliminary eligibility from five answers, decided internally before any identity, OTP or paid check. Only two outcomes: Eligible or Not Eligible; revenue never changes the result. Options fill the form; press Check eligibility.',
+  intro: 'Preliminary eligibility from five answers, decided internally before any identity, OTP or paid check. Two internal outcomes, Eligible or Not Eligible; nothing is shown to the applicant and everyone continues to Identify. Options fill the form; press Check eligibility.',
   integrations: ['None — internal eligibility rules only'],
   groups: () => [{
-    title: 'Eligibility',
+    title: 'Eligibility (internal)',
     options: [
       { id: 'eligible', label: 'Eligible Registered Business', run: fillKyb({}) },
       { id: 'eligible-fl', label: 'Eligible Freelancer', run: fillKyb({ kind: 'FL_CERT', group: 'services', sub: 'services-design' }) },
-      { id: 'no-cert', label: 'Freelancer without Certificate → Not Eligible', run: fillKyb({ kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
-      { id: 'unsupported', label: 'Unsupported Category → Identify / OTP → Not Eligible', run: unsupported }
+      { id: 'no-cert', label: 'Freelancer without Certificate → Identify / OTP → Application submitted', run: fillKyb({ kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
+      { id: 'unsupported', label: 'Unsupported Category → Identify / OTP → Application submitted', run: unsupported }
     ]
   }]
 };
@@ -78,7 +80,7 @@ const existenceOpt = (id: Sim['existence'], label: string): PageOption => ({
 
 const identify: PageDef = {
   title: 'Identifier + mobile',
-  intro: 'CR / National ID, mobile and the prerequisite question. Send code runs an internal record lookup first (no provider): new → code to this mobile; existing → code to the REGISTERED mobile.',
+  intro: 'CR / National ID and mobile (+ the IBAN question for an eligible Freelancer). Send code runs an internal record lookup first (no provider): new → code to this mobile; existing → code to the STORED mobile, never the one typed here.',
   integrations: ['Madfu application and merchant records (internal)', 'SMS OTP service (next)'],
   groups: (s) => {
     const groups: PageGroup[] = [{
@@ -88,16 +90,15 @@ const identify: PageDef = {
         existenceOpt('incomplete', 'Application already in progress'),
         existenceOpt('submitted', 'Application already submitted'),
         existenceOpt('live', 'Already a Madfu merchant'),
-        existenceOpt('not_eligible', 'Saved as Not Eligible earlier')
+        existenceOpt('not_eligible', 'Captured earlier (internally Not Eligible)')
       ]
     }];
     if (asksPrerequisite(s.app)) {
-      const cr = s.app.kyb.kind === 'CR';
       groups.push({
-        title: cr ? 'Owner or manager on the CR?' : 'IBAN linked to the certificate?',
+        title: 'IBAN linked to the certificate?',
         options: [
           { id: 'pre-yes', label: 'Yes → continue', run: (x) => setIdentity(x, { prerequisite: 'yes' }), current: (x) => x.app.identity.prerequisite === 'yes' },
-          { id: 'pre-no', label: cr ? 'No → Not Eligible (V1)' : 'No → Not Eligible: link the bank account first', run: (x) => setIdentity(x, { prerequisite: 'no' }), current: (x) => x.app.identity.prerequisite === 'no' }
+          { id: 'pre-no', label: 'No → Application submitted (internal Not Eligible)', run: (x) => setIdentity(x, { prerequisite: 'no' }), current: (x) => x.app.identity.prerequisite === 'no' }
         ]
       });
     }
@@ -146,20 +147,18 @@ const CR_DEFAULT: Sim['cr'] = { result: 'found', status: 'ACTIVE', ageMonths: 26
 /** A fresh CR + owners retrieval with the given provider answers (new simulated calls). */
 const crCase = (patch: Partial<Sim['cr']>, persons: PersonsResult = 'multiple') => (x: ProposedState) => {
   const reset = app(sim(x, { cr: { ...CR_DEFAULT, ...patch }, persons }), {
-    status: 'DRAFT', outcome: null, outcomeReason: null, step: 'persons',
+    status: 'DRAFT', outcome: null, outcomeReason: null, step: 'cr',
     cr: { status: 'idle', tries: 0, record: null, gov: null, govReason: null }, categoryCheck: null, risk: null,
     persons: { status: 'idle', tries: 0, list: [], selectedId: null }, flags: [], verifications: dropRecords(x.app, 'CR_DATA', 'PERSONS')
   });
   return runBusinessVerification(reset);
 };
 
-const persons: PageDef = {
-  title: 'Business verification (CR) + owner / manager',
-  intro: 'CR data and the owners / managers are retrieved here, in the backend. The merchant sees a screen only when they must act (select a person, retry, or a stop).',
+const cr: PageDef = {
+  title: 'CR verification',
+  intro: 'CR data and the owners / managers are retrieved here, in the backend, and feed the risk score. Nobody is chosen here: who authorizes is decided after Review.',
   integrations: ['Government CR data (status, age, activities, National Address, entity)', 'Government associated parties'],
-  groups: (s) => {
-    const list = eligiblePersons(s.app.persons.list);
-    const other = list.find((p) => p.id !== s.app.persons.selectedId);
+  groups: () => {
     return [
       {
         title: 'CR result',
@@ -187,9 +186,8 @@ const persons: PageDef = {
         options: [
           { id: 'one', label: 'One owner / manager', run: crCase({}, 'one') },
           { id: 'multiple', label: 'Several owners / managers', run: crCase({}, 'multiple') },
-          { id: 'none', label: 'None (only a delegate / company)', run: crCase({}, 'none') },
-          { id: 'people-unavailable', label: 'People data unavailable', run: crCase({}, 'unavailable') },
-          ...(other ? [{ id: 'change', label: 'Selection changed', run: (x: ProposedState) => selectPerson(x, other.id) }] : [])
+          { id: 'none', label: 'None (only a delegate / company) → captured internally', run: crCase({}, 'none') },
+          { id: 'people-unavailable', label: 'People data unavailable', run: crCase({}, 'unavailable') }
         ]
       }
     ];
@@ -209,35 +207,24 @@ const answer = (r: NafathResult) => (x: ProposedState) => {
 const attempt = (usedBefore: number) => (x: ProposedState) =>
   answer('rejected')(app(x, { nafath: { ...x.app.nafath, status: 'idle', failures: usedBefore, lastResult: null } }));
 
-const certPre = (r: CertificatesResult) => (x: ProposedState) =>
-  runCertificatePrecheck(app(sim(x, { certificates: r }), { status: 'DRAFT', outcome: null, outcomeReason: null, step: 'nafath', certs: { precheck: 'idle', status: 'idle', tries: 0, list: [], selectedId: null }, verifications: dropRecords(x.app, 'FL_CERTS') }));
-
 const nafath: PageDef = {
   title: 'Mobile ownership + Nafath',
-  intro: `Send to Nafath first checks that the verified mobile belongs to the verifying person's National ID. ${LIMITS.nafathAttempts} Nafath attempts per application; technical failures do not count but are bounded.`,
-  integrations: ['Freelancer Certificate pre-check (backend, Freelancer)', 'Mobile ownership service', 'Nafath'],
+  intro: `Send to Nafath first checks that the mobile belongs to the verifying person's National ID (Freelancer, self-authorizing owner / manager, or the signer's handoff mobile). ${LIMITS.nafathAttempts} Nafath attempts; technical failures do not count but are bounded.`,
+  integrations: ['Mobile ownership service', 'Nafath'],
   groups: (s) => {
     const groups: PageGroup[] = [];
-    if (s.app.kyb.kind === 'FL_CERT') {
+    if (s.app.nafath.status === 'verified' || s.app.nafath.status === 'exhausted' || !s.app.id) return groups;
+    const signer = s.app.actor === 'signer';
+    if (!signer) {
       groups.push({
-        title: 'Certificate pre-check (backend, before Nafath)',
-        note: 'Hidden from the applicant: no certificate detail is shown before Nafath.',
+        title: 'Mobile ↔ National ID',
         options: [
-          { id: 'pre-found', label: 'Certificate exists', run: certPre('one') },
-          { id: 'pre-none', label: 'No certificate → Not Eligible, no Nafath', run: certPre('none') },
-          { id: 'pre-unavailable', label: 'Certificate service unavailable', run: certPre('unavailable') }
+          { id: 'mm-match', label: 'Mobile matches', run: matchCase(['match']) },
+          { id: 'mm-mismatch', label: 'Mismatch, then the corrected mobile matches', run: matchCase(['mismatch', 'match']) },
+          { id: 'mm-twice', label: 'Mismatch twice → verification paused', run: matchCase(['mismatch', 'mismatch']) }
         ]
       });
     }
-    if (s.app.nafath.status === 'verified' || s.app.nafath.status === 'exhausted') return groups;
-    groups.push({
-      title: 'Mobile ↔ National ID',
-      options: [
-        { id: 'mm-match', label: 'Mobile matches', run: matchCase(['match']) },
-        { id: 'mm-mismatch', label: 'Mismatch, then the corrected mobile matches', run: matchCase(['mismatch', 'match']) },
-        { id: 'mm-twice', label: 'Mismatch twice → verification paused', run: matchCase(['mismatch', 'mismatch']) }
-      ]
-    });
     if (s.app.mobileMatch.status === 'mismatch' || s.app.mobileMatch.status === 'entering' || s.app.mobileMatch.status === 'blocked') return groups;
     groups.push(
       {
@@ -250,10 +237,10 @@ const nafath: PageDef = {
         ]
       },
       {
-        title: 'Attempts',
+        title: signer ? 'Signer attempts' : 'Attempts',
         options: [
           { id: 'first-fail', label: 'First failure — retry available', run: attempt(0) },
-          { id: 'final-fail', label: 'Final failed attempt → manual route', run: attempt(LIMITS.nafathAttempts - 1) }
+          { id: 'final-fail', label: signer ? 'Final failed attempt → authorization not completed' : 'Final failed attempt → manual route', run: attempt(LIMITS.nafathAttempts - 1) }
         ]
       }
     );
@@ -264,11 +251,11 @@ const nafath: PageDef = {
 /* ------------------------------------------------------------------ Freelancer certificates */
 
 const certCase = (r: CertificatesResult) => (x: ProposedState) =>
-  loadCertificates(app(sim(x, { certificates: r }), { status: 'DRAFT', outcome: null, outcomeReason: null, step: 'certificates', categoryCheck: null, certs: { precheck: 'idle', status: 'idle', tries: 0, list: [], selectedId: null }, verifications: dropRecords(x.app, 'FL_CERTS') }));
+  loadCertificates(app(sim(x, { certificates: r }), { status: 'DRAFT', outcome: null, outcomeReason: null, step: 'certificates', categoryCheck: null, certs: { status: 'idle', tries: 0, list: [], selectedId: null }, verifications: dropRecords(x.app, 'FL_CERTS') }));
 
 const certificates: PageDef = {
   title: 'Freelancer certificate',
-  intro: 'After Nafath: the certificates found by the pre-check are shown (no new call). The confirmed certificate activity becomes the verified category.',
+  intro: 'Before Nafath: one retrieval by National ID (no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category; then Nafath.',
   integrations: ['Freelance platform (certificates)'],
   groups: () => [{
     title: 'Retrieval result',
@@ -277,6 +264,8 @@ const certificates: PageDef = {
       { id: 'multiple', label: 'Several certificates', run: certCase('multiple') },
       { id: 'expired', label: 'One expired, one active', run: certCase('expired') },
       { id: 'duplicate', label: 'Already linked to another account', run: certCase('duplicate') },
+      { id: 'none', label: 'No certificate → Application submitted (internal)', run: certCase('none') },
+      { id: 'unavailable', label: 'Certificate service unavailable', run: certCase('unavailable') },
       { id: 'mismatch', label: 'Certificate activity requires a CR', run: certCase('mismatch') }
     ]
   }]
@@ -354,9 +343,9 @@ const commercial: PageDef = {
 
 const review: PageDef = {
   title: 'Review',
-  intro: 'Verified sections are locked. Only store presence and the rate review open an edit: draft until Save, Cancel restores everything.',
+  intro: 'Preparer: verified sections are locked; only store presence and the rate review open an edit (draft until Save, Cancel restores everything). Signer: everything is read-only, including the frozen offer.',
   integrations: ['None'],
-  groups: () => [{
+  groups: (s) => s.app.actor === 'signer' ? [] : [{
     title: 'Controlled edit',
     options: [
       { id: 'edit-presence', label: 'Edit store presence', run: (x) => startEdit(x, 'presence') },
@@ -365,16 +354,108 @@ const review: PageDef = {
   }]
 };
 
+/* ------------------------------------------------------------------ Authorization (CR), handoff, signer, delegation */
+
+const firstOther = (x: ProposedState) => eligiblePersons(x.app.persons.list).find((p) => p.id !== 'p1')?.id ?? 'p1';
+
+const authorize: PageDef = {
+  title: 'Authorization choice',
+  intro: `Registered business, after Review: the preparer authorizes personally (owner / manager → Nafath → Contract) or sends the application to another owner / manager on the CR. Max ${HANDOFF_RULES.maxVersions} handoffs in ${HANDOFF_RULES.windowDays} days.`,
+  integrations: ['Government associated parties (stored)', 'SMS (secure signer link)'],
+  groups: (s) => [
+    {
+      title: 'Choice',
+      options: [
+        { id: 'self', label: 'I can complete the authorization myself', run: (x) => selectPerson(chooseAuthMode(x, 'self'), 'p1'), current: (x) => x.app.authorization.mode === 'self' },
+        { id: 'signer', label: 'Send to another signer', run: (x) => chooseAuthMode(x, 'signer'), current: (x) => x.app.authorization.mode === 'signer' }
+      ]
+    },
+    ...(canStartHandoff(s.app) ? [{
+      title: 'Signer handoff',
+      options: [{ id: 'send', label: 'Send Authorization (owner / manager + demo mobile)', run: (x: ProposedState) => createHandoff(chooseAuthMode(x, 'signer'), firstOther(x), DEMO.signerMobile) }]
+    }] : [{
+      title: 'Signer handoff limit',
+      note: `${HANDOFF_RULES.maxVersions} handoffs in ${HANDOFF_RULES.windowDays} days already used for this application.`,
+      options: [{ id: 'unlock', label: 'Internal team: unlock one more handoff', run: manualUnlock }]
+    }])
+  ]
+};
+
+const signerOpens = (x: ProposedState) => {
+  const token = latestSignerToken(x);
+  return token ? openSignerLink(leaveSession(x), token) : x;
+};
+const afterDays = (x: ProposedState, days: number) => {
+  const v = currentVersion(x.app);
+  return v ? checkExpiry(x, Date.parse(v.createdAt) + days * 24 * 60 * 60 * 1000) : x;
+};
+
+const handoffPage: PageDef = {
+  title: 'Authorization status (preparer)',
+  intro: `After Send Authorization the application and offer are frozen and read-only; the preparer sees status only. Changing the signer or mobile is Phase 2. Link valid ${HANDOFF_RULES.expiryDays} days (configurable).`,
+  integrations: ['SMS (secure signer link)'],
+  groups: (s) => {
+    const live = !!activeVersion(s.app);
+    return [
+      ...(live ? [{
+        title: 'Signer',
+        options: [
+          { id: 'open', label: 'Signer opens the secure link (new session)', run: signerOpens },
+          { id: 'expire', label: `${HANDOFF_RULES.expiryDays} days pass → link expires`, run: (x: ProposedState) => afterDays(x, HANDOFF_RULES.expiryDays) },
+          { id: 'not-yet', label: `${HANDOFF_RULES.expiryDays - 1} days pass → still valid`, run: (x: ProposedState) => afterDays(x, HANDOFF_RULES.expiryDays - 1) }
+        ]
+      }] : []),
+      ...(!live && s.app.status === 'AWAITING_AUTHORIZATION' ? [{
+        title: 'New authorization version',
+        options: [
+          { id: 'restart', label: 'Start a new authorization (same application)', run: restartAuthorization },
+          ...(s.app.authorization.limitReached || !canStartHandoff(s.app) ? [{ id: 'unlock', label: 'Internal team: unlock one more handoff', run: manualUnlock }] : [])
+        ]
+      }] : [])
+    ];
+  }
+};
+
+const signer: PageDef = {
+  title: 'Signer entry (secure link)',
+  intro: 'No OTP in Phase 1. The link alone does not authorize: masked request details only, then Nafath. The full application is shown only after Nafath.',
+  integrations: ['Secure link (token)', 'Mobile ownership service (next)', 'Nafath (next)'],
+  groups: (s) => s.app.signerSession?.link !== 'active' ? [] : [{
+    title: 'Signer checks before Nafath',
+    options: [
+      { id: 'start', label: 'Start Nafath (mobile matches)', run: (x) => signerStartNafath(sim(x, { mobileMatch: ['match'] })) },
+      { id: 'mismatch', label: 'Signer mobile does not match → version ends', run: (x) => signerStartNafath(sim(x, { mobileMatch: ['mismatch'] })) }
+    ]
+  }]
+};
+
+const DELEGATION_TYPES: Array<[DelegationType, string]> = [['MOJ', 'Ministry of Justice delegation'], ['COMPANY_DOC', 'Company / commercial delegation document'], ['OTHER_DOC', 'Other official delegation document']];
+const delegationOpt = (status: DelegationStatus, label: string): PageOption => ({ id: `d-${status}`, label, run: (x) => delegationResult(x, status), current: (x) => x.app.authorization.delegation.status === status });
+
+const delegation: PageDef = {
+  title: 'Delegated signer — PHASE 2 (demo only)',
+  intro: 'Represented for the demo; not Phase 1 behaviour. Delegation authority is verified BEFORE Nafath (Nafath proves identity, not authority). Manual reviews never need an open session.',
+  integrations: ['Ministry of Justice (Phase 2, not integrated)', 'Quality manual review (Phase 2)'],
+  groups: (s) => {
+    const d = s.app.authorization.delegation;
+    return [
+      { title: 'Delegation type', options: DELEGATION_TYPES.map(([t, label]) => ({ id: t, label, run: (x: ProposedState) => setDelegationType(x, t), current: (x: ProposedState) => x.app.authorization.delegation.type === t })) },
+      ...(d.type === 'MOJ' ? [{ title: 'Ministry of Justice check (demo)', options: [delegationOpt('valid', 'Valid → Nafath → Contract'), delegationOpt('invalid', 'Invalid → stop')] }] : []),
+      ...(d.type && d.type !== 'MOJ' ? [{ title: 'Quality review (demo)', options: [delegationOpt('under_review', 'Uploaded → under Quality review'), delegationOpt('approved', 'Approved → continuation link → Nafath → Contract'), delegationOpt('rejected', 'Rejected → stop')] }] : [])
+    ];
+  }
+};
+
 const contract: PageDef = {
   title: 'Contract',
-  intro: 'Contract only: Back to Review or Agree & Submit, which completes the application. There is no Decline action. The standard commission is contract content.',
+  intro: 'Contract only: Back to Review or one action — Agree & Submit (preparer: Freelancer or self-authorizing owner / manager) or Agree & Sign (signer). There is no Decline action. The frozen standard commission is contract content.',
   integrations: ['Contract acceptance (generic, provider not approved)'],
   groups: () => []
 };
 
 const outcome: PageDef = {
   title: 'Outcome',
-  intro: 'End page. Re-entering with the same identifier routes by the saved lifecycle status (a saved Not Eligible record reopens this confirmation).',
+  intro: 'End page. Internally Not Eligible applications see exactly the normal submitted page. Re-entering routes by the saved lifecycle status (Application Progress).',
   integrations: [],
   groups: (s) => {
     if (s.app.outcome === 'PAUSED_CR') return [{ title: 'Sales recovery (internal)', note: 'No merchant-facing refresh: only Sales re-checks the CR, after it is corrected.', options: [{ id: 'recover', label: 'Sales: CR corrected → controlled re-check', run: salesRecoverCr }] }];
@@ -395,14 +476,14 @@ const status: PageDef = {
 };
 
 const login: PageDef = {
-  title: 'Merchant login',
-  intro: 'Existing merchant after the account-mobile code. No onboarding application is created.',
+  title: 'Active account popup',
+  intro: 'Existing live merchant after the account-mobile code: a popup “You already have an active account under this CR.” Nothing navigates until the merchant clicks Log in. No application is created.',
   integrations: [],
   groups: () => []
 };
 
 export const PAGE_SCENARIOS: Record<StepId, PageDef> = {
-  kyb, identify, otp, persons, nafath, certificates, business, commercial, review, contract, outcome, status, login
+  kyb, identify, otp, cr, certificates, nafath, business, commercial, review, authorize, handoff: handoffPage, delegation, signer, contract, outcome, status, login
 };
 
 /** The groups for the current screen, without empty groups. */
@@ -416,8 +497,9 @@ export function reuseNote(s: ProposedState): string | null {
   const step = s.app.step;
   const reused = (check: string) => s.app.ledger.some((e) => e.kind === 'reuse' && e.check === check);
   if (step === 'nafath' && s.app.nafath.status === 'verified' && reused('NAFATH')) return 'Already verified — reused (no new Nafath call)';
-  if (step === 'persons' && s.app.cr.status === 'loaded' && reused('CR_DATA')) return 'CR data already retrieved — reused';
-  if (step === 'certificates' && s.app.certs.status === 'loaded' && reused('FL_CERTS')) return 'Certificates from the pre-check — no new call';
+  if (step === 'cr' && s.app.cr.status === 'loaded' && reused('CR_DATA')) return 'CR data already retrieved — reused';
+  if (step === 'certificates' && s.app.certs.status === 'loaded' && reused('FL_CERTS')) return 'Certificates already retrieved — no new call';
+  if (step === 'signer') return 'The signer link opens without OTP; Nafath runs again in every signer session';
   if (step === 'business' && s.app.business.ibanStatus === 'verified' && reused('IBAN')) return 'IBAN already verified — reused';
   return null;
 }
