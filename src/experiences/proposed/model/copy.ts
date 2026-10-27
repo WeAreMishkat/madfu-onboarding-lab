@@ -1,9 +1,9 @@
 /**
  * External copy (shown to applicants) and internal labels (Prototype Controls, boards, docs).
- * Blocked outcomes carry a PERSONALISED reason per rule; they never expose internal scoring, risk
- * levels, flags or reason codes.
+ * Not Eligible outcomes carry a PERSONALISED reason per rule; they never expose internal scoring, risk
+ * levels, flags or reason codes. "Not Eligible" is the only external term (never Blocked / Rejected).
  */
-import { PREREQUISITE_QUESTION, REVENUE_RULE } from './config';
+import { PREREQUISITE_QUESTION } from './config';
 import type { Flag, Lifecycle, OutcomeKind, ReasonCode } from './types';
 
 export const OUTCOME_COPY: Record<OutcomeKind, { title: string; body: string; tone: 'success' | 'neutral' | 'warning' }> = {
@@ -17,20 +17,10 @@ export const OUTCOME_COPY: Record<OutcomeKind, { title: string; body: string; to
     body: 'Our team will complete the remaining verification and may contact you. You can follow its progress with your registered mobile number.',
     tone: 'neutral'
   },
-  SALES_LEAD: {
-    title: 'Thank you. Our Sales team will contact you.',
-    body: 'We have your business details and your verified contact number. Nothing else is needed from you now.',
-    tone: 'success'
-  },
-  FL_CERT_REQUIRED: {
-    title: 'A Freelancer Certificate is required to continue.',
-    body: 'We have saved your details and your verified contact number. Once you have an active Freelancer Certificate, you can apply again.',
-    tone: 'neutral'
-  },
-  BLOCKED: {
-    title: 'We can’t continue your application online.',
+  NOT_ELIGIBLE: {
+    title: 'Not eligible for Madfu onboarding',
     body: 'Thank you for your interest in Madfu.',
-    tone: 'warning'
+    tone: 'neutral'
   },
   PAUSED_CR: {
     title: 'Your application is saved.',
@@ -39,18 +29,27 @@ export const OUTCOME_COPY: Record<OutcomeKind, { title: string; body: string; to
   }
 };
 
-/** Personalised, merchant-facing reason per rule (blocked and paused outcomes). */
+/**
+ * Copy of the Not Eligible page when the applicant's details were saved with a verified contact
+ * (Identify + OTP completed). Without a saved contact (Page-1 stop) the standard copy is used.
+ */
+export const NOT_ELIGIBLE_SAVED_COPY = {
+  title: 'Thank you. We’ve received your details.',
+  body: 'We may contact you if eligibility changes in the future.'
+};
+
+/** Personalised, merchant-facing reason per rule (Not Eligible and paused outcomes). */
 export const REASON_USER_COPY: Partial<Record<ReasonCode, { title?: string; text: string }>> = {
-  CATEGORY_NOT_SUPPORTED: { text: 'Madfu does not currently support businesses in this category.' },
-  REGULATORY_RESTRICTION: { text: 'Businesses in this category cannot be onboarded online because of regulatory requirements.' },
+  CATEGORY_NOT_SUPPORTED: { text: 'This business activity is currently not eligible for Madfu onboarding.' },
+  REGULATORY_RESTRICTION: { text: 'This business activity is currently not eligible for Madfu onboarding because of regulatory requirements.' },
   ACTIVITY_REQUIRES_CR: { text: 'This activity requires a registered business with a Commercial Registration. You can apply as a registered business once you have a CR.' },
   CHANNEL_NOT_SUPPORTED: { text: 'Freelancers in this category can be onboarded only when they sell online.' },
   ACTIVITY_REGULATED: { text: 'Your registered business activity cannot be onboarded online because of regulatory requirements.' },
   NOT_OWNER_MANAGER: { text: 'Online self-onboarding is currently available only to the owners and managers registered on the Commercial Registration. Please ask an owner or manager to apply.' },
   NO_OWNER_MANAGER_ON_CR: { text: 'We could not find an owner or manager on this Commercial Registration who can apply online. Online self-onboarding is available only to the owners and managers registered on the CR.' },
   FL_IBAN_NOT_LINKED: { text: 'To onboard as a Freelancer, your bank account (IBAN) must be linked to your Freelancer Certificate. Link your account on the freelance platform, then apply again with the same National ID.' },
-  FL_CERT_REQUIRED: { text: 'Online onboarding for Freelancers needs an active Freelancer Certificate.' },
-  FL_CERT_NOT_FOUND: { text: 'We could not find an active Freelancer Certificate for your National ID.' },
+  FL_CERT_REQUIRED: { text: 'Online onboarding for Freelancers needs an active Freelancer Certificate. Once you have one, you can apply again as a Freelancer with a certificate.' },
+  FL_CERT_NOT_FOUND: { text: 'We could not find an active Freelancer Certificate for your National ID. Once you have one, you can apply again with the same National ID.' },
   CR_EXPIRED: { title: 'Your Commercial Registration is currently expired.', text: 'Please update your CR. We will transfer your application to our Sales team, who can help you continue onboarding.' },
   CR_SUSPENDED: { title: 'Your Commercial Registration is currently suspended.', text: 'Please update your CR. We will transfer your application to our Sales team, who can help you continue onboarding.' },
   CR_RESTRICTED: { title: 'Your Commercial Registration currently has a restriction.', text: 'Please resolve it with the issuing authority. We will transfer your application to our Sales team, who can help you continue onboarding.' }
@@ -70,8 +69,7 @@ export const STATUS_LABEL: Record<Lifecycle, string> = {
   QUALIFICATION: 'Qualification (Page 1 / Page 2) — no application yet',
   OTP_PENDING: 'OTP pending — no application yet',
   DRAFT: 'Draft application (self-onboarding in progress)',
-  SALES_LEAD: 'Sales lead (contact verified, no onboarding data collected)',
-  BLOCKED: 'Blocked (hard rule; personalised reason shown)',
+  NOT_ELIGIBLE: 'Not eligible (verified contact saved; personalised reason shown)',
   PAUSED_CR: 'Paused — CR expired / suspended; saved and handed to Sales',
   SUBMITTED: 'Submitted',
   UNDER_REVIEW: 'Under review',
@@ -83,14 +81,12 @@ export const STATUS_LABEL: Record<Lifecycle, string> = {
 
 export const REASON_LABEL: Record<ReasonCode, string> = {
   OK: 'No restriction',
-  CATEGORY_NOT_SUPPORTED: 'Category blocked / blacklisted',
+  CATEGORY_NOT_SUPPORTED: 'Category not supported (blacklisted)',
   REGULATORY_RESTRICTION: 'Regulatory prohibition',
   ACTIVITY_REQUIRES_CR: 'Activity requires a CR',
   CHANNEL_NOT_SUPPORTED: 'Channel not allowed for this applicant type',
-  FL_CERT_REQUIRED: 'Freelancer without certificate (lead)',
+  FL_CERT_REQUIRED: 'Freelancer without certificate (Not Eligible on Page 1)',
   FL_CERT_NOT_FOUND: 'No usable Freelancer Certificate found (pre-check)',
-  REVENUE_BELOW_BAND: `CR revenue below SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} (lead)`,
-  REVENUE_ABOVE_BAND: `CR revenue above SAR ${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')} (Sales lead)`,
   NOT_OWNER_MANAGER: `Declared "No" to: ${PREREQUISITE_QUESTION.CR}`,
   NO_OWNER_MANAGER_ON_CR: 'No individual owner / manager on the CR (declaration not confirmed)',
   FL_IBAN_NOT_LINKED: `Declared "No" to: ${PREREQUISITE_QUESTION.FL_CERT}`,

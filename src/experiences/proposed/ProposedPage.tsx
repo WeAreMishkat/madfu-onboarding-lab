@@ -55,11 +55,11 @@ export function ProposedFrame() {
   useEffect(() => { setNotice(null); }, [app.step]);
   const View = STEP_VIEW[app.step];
   const finished = app.step === 'outcome';
-  // The stepper shows complete only for a real submission. Leads, stops, existing-record codes,
-  // Application Progress and login hide it.
+  // The stepper shows complete only for a real submission. Not Eligible journeys, stops,
+  // existing-record codes, Application Progress and login hide it.
   const submitted = app.outcome === 'SUBMITTED' || (app.outcome === 'SUBMITTED_MANUAL' && !!app.commercial.agreed);
   const existingCode = app.step === 'otp' && (app.otp.purpose === 'registered' || app.otp.purpose === 'resume');
-  const leadLike = app.eligibility?.result === 'SALES_LEAD' || existingCode || app.step === 'status' || app.step === 'login' || (finished && !submitted);
+  const leadLike = app.eligibility?.result === 'NOT_ELIGIBLE' || existingCode || app.step === 'status' || app.step === 'login' || (finished && !submitted);
   const current = finished ? STAGES.length - 1 : STAGES.indexOf(stageOf(app.step));
   const canSave = !!app.id && app.sessionVerified && app.status === 'DRAFT' && !finished;
 

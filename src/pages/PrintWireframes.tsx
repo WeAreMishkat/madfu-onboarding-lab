@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { MadfuBusinessLockup } from '@/lab/BrandMarks';
 import { DecisionTable } from '@/experiences/proposed/DecisionTables';
 import { BoardLegend, BoardSvg, OpenItemsList } from '@/experiences/proposed/MasterBoards';
-import { DETAILED_BOARD, REUSE_NOTE, SIMPLE_BOARD, splitMap, type JourneyMap } from '@/experiences/proposed/model/boards';
+import { MasterBoardCanvas, MasterBoardPreview } from '@/experiences/proposed/MasterBoardCanvas';
+import { DETAILED_BOARD, REUSE_NOTE, splitMap, type JourneyMap } from '@/experiences/proposed/model/boards';
+import { BOARD_GEOMETRY } from '@/experiences/proposed/model/masterBoard';
 import { STAGES, UX_HANDOVER_NOTE } from '@/experiences/proposed/model/config';
 import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OTHER_OPEN_POINTS } from '@/experiences/proposed/model/decisions';
 import { SCENARIOS } from '@/experiences/proposed/model/scenarios';
@@ -16,7 +18,7 @@ import '@/styles/print.css';
  * Print-only routes. Every screen is rendered by the same step components as the prototype; every
  * board and table from the same model.
  *   /print/wireframes      Madfu_Merchant_Onboarding_Wireframes.pdf     1600 × 1300 px pages
- *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      2200 × 1150 px
+ *   /print/board-simple    Madfu_Proposed_Simple_Master_Board.pdf      5560 × 3010 px (visual screen flow)
  *   /print/board-detailed  Madfu_Proposed_Detailed_Master_Board.pdf    2000 × 1250 px pages
  */
 const SPEC_VERSION = 'Agreed product decisions, 27 Oct 2026 (supersede the 23 Oct KYB-first journey and the 15 Oct wireframe specification where they differ)';
@@ -123,9 +125,8 @@ export default function PrintWireframes() {
     </Page>
   );
   pages.push(
-    <Page key="simple" section="Journey overview" title={SIMPLE_BOARD.title} caption={REUSE_NOTE} n={next()}>
-      <BoardLegend />
-      <MapBlock map={SIMPLE_BOARD} />
+    <Page key="simple" section="Journey overview" title="Master Board" caption="The journey, screen by screen. Full-size version: Madfu_Proposed_Simple_Master_Board.pdf." n={next()}>
+      <MasterBoardPreview scale={1520 / BOARD_GEOMETRY.width} />
     </Page>
   );
   const snaps = (s: SnapshotSection) => SNAPSHOTS.filter((x) => x.section === s);
@@ -168,16 +169,14 @@ export default function PrintWireframes() {
 
 /* ------------------------------------------------------------------ master board PDFs */
 
+/** The visual Master Board: one large landscape page of real screens and arrows (management view). */
 export function PrintSimpleBoard() {
   usePrintReady('Madfu_Proposed_Simple_Master_Board');
+  const { width, height } = BOARD_GEOMETRY;
   return (
     <div className="pw">
-      <style>{'@page { size: 2200px 1150px; margin: 0; }'}</style>
-      <Page section="Madfu Proposed · Merchant onboarding" title={SIMPLE_BOARD.title} caption={SIMPLE_BOARD.caption} n={1} w={2200} h={1150} footer="Madfu Proposed · Master Board · generated from the Lab model">
-        <BoardLegend />
-        <div className="pw-map pw-board pw-board-simple"><BoardSvg map={SIMPLE_BOARD} /></div>
-        <div className="pw-board-open"><h3 className="pw-sub">Open decisions (not confirmed rules)</h3><OpenItemsList compact /></div>
-      </Page>
+      <style>{`@page { size: ${width}px ${height}px; margin: 0; }`}</style>
+      <section className="pw-page pw-page-bare" style={{ width, height }}><MasterBoardCanvas /></section>
     </div>
   );
 }

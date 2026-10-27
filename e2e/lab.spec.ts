@@ -141,6 +141,48 @@ test('Madfu Proposed: CR mobile mismatch before Nafath is corrected with a new c
   await expect(page.getByText('Select this number in Nafath')).toBeVisible();
 });
 
+async function proposedKyb(page: Page, kind: string, group: string, sub: string, revenue = /SAR 100,000–20,000,000/) {
+  await page.getByLabel('Who is applying?').selectOption(kind);
+  await page.getByLabel('Business category').selectOption(group);
+  await page.getByLabel('Business subcategory').selectOption(sub);
+  await page.getByRole('radio', { name: revenue }).check();
+  await page.getByRole('radio', { name: /^Online/ }).check();
+  await page.getByRole('button', { name: 'Check eligibility' }).click();
+}
+
+test('Madfu Proposed: Freelancer without certificate is Not Eligible on Page 1 — no Identify, no OTP', async ({ page }) => {
+  await freshProposed(page);
+  await proposedKyb(page, 'FL_NO_CERT', 'services', 'services-design');
+  await expect(page.getByRole('heading', { name: 'Not eligible for Madfu onboarding' })).toBeVisible();
+  await expect(page.getByLabel('National ID Number')).toHaveCount(0);
+  await expect(page.getByLabel('Verification code')).toHaveCount(0);
+});
+
+test('Madfu Proposed: unsupported category → Identify → OTP → Not Eligible (details received)', async ({ page }) => {
+  await freshProposed(page);
+  await proposedKyb(page, 'CR', 'fixture', 'fixture-blocked');
+  await expect(page.getByRole('heading', { name: 'Leave your details' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Yes' })).toHaveCount(0);
+  await page.getByLabel('Commercial Registration (Unified Number)').fill(CR);
+  await page.getByLabel('Mobile number').fill(MOBILE);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Verification code').fill('246810');
+  await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your details.' })).toBeVisible();
+  await expect(page.getByText('This business activity is currently not eligible for Madfu onboarding.')).toBeVisible();
+});
+
+test('Madfu Proposed: a registered business above SAR 20M self-onboards (no Sales route)', async ({ page }) => {
+  await freshProposed(page);
+  await proposedKyb(page, 'CR', 'retail', 'retail-fashion', /Above SAR 20,000,000/);
+  await expect(page.getByRole('heading', { name: 'Good news: you can apply online' })).toBeVisible();
+  await page.getByLabel('Commercial Registration (Unified Number)').fill(CR);
+  await page.getByLabel('Mobile number').fill(MOBILE);
+  await page.getByRole('radio', { name: 'Yes' }).check();
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Verification code').fill('246810');
+  await expect(page.getByRole('heading', { name: 'Who is applying for this business?' })).toBeVisible({ timeout: 10_000 });
+});
+
 test('Prototype Controls: Start demo preset, Page Scenarios per screen, Internal view shows reuse', async ({ page }) => {
   await page.goto('./madfu/proposed');
   const toggle = page.getByRole('button', { name: 'Prototype Controls', exact: true });

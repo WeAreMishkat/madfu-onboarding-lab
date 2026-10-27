@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { DETAILED_BOARD, NODE_KIND_LABEL, REUSE_NOTE, SIMPLE_BOARD, routeEdge, type JourneyMap, type MapNode, type NodeKind } from './model/boards';
+import { MasterBoardPreview } from './MasterBoardCanvas';
+import { DETAILED_BOARD, NODE_KIND_LABEL, routeEdge, type JourneyMap, type MapNode, type NodeKind } from './model/boards';
 import { OPEN_ITEMS } from './model/decisions';
 
 /** Node geometry: normal for the Simple board, large (room for field lists) for the Detailed panels. */
@@ -140,21 +141,19 @@ export function MasterBoards() {
         <button role="tab" aria-selected={tab === 'simple'} className={tab === 'simple' ? 'is-active' : ''} onClick={() => setTab('simple')}>Master Board</button>
         <button role="tab" aria-selected={tab === 'detailed'} className={tab === 'detailed' ? 'is-active' : ''} onClick={() => setTab('detailed')}>Detailed Logic Board</button>
       </div>
-      <BoardLegend />
       {tab === 'simple' ? (
         <>
-          <p className="jm-caption">{SIMPLE_BOARD.caption}</p>
-          <div className="jm-canvas" tabIndex={0} aria-label="Master Board, scroll horizontally"><BoardSvg map={SIMPLE_BOARD} /></div>
-          <p className="jm-reuse-note">{REUSE_NOTE}</p>
+          <p className="jm-caption">The journey, screen by screen: every box is the real Proposed screen. Open the PDF for the full-size board.</p>
+          <div className="mbx-preview-wrap" tabIndex={0} aria-label="Master Board, scroll horizontally"><MasterBoardPreview /></div>
         </>
       ) : (
-        DETAILED_BOARD.map((m) => (
+        [<BoardLegend key="legend" />, ...DETAILED_BOARD.map((m) => (
           <section key={m.id} className="jm-panel" aria-label={m.title}>
             <h2 className="jm-panel-title">{m.title}</h2>
             <p className="jm-caption">{m.caption}</p>
             <div className="jm-canvas" tabIndex={0} aria-label={`${m.title}, scroll horizontally`}><BoardSvg map={m} /></div>
           </section>
-        ))
+        ))]
       )}
       <section className="jm-panel" aria-label="Open product and compliance decisions">
         <h2 className="jm-panel-title">Open product and compliance decisions</h2>

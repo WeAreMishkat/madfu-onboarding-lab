@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { wait } from '@/lib/timing';
 import { PREREQUISITE_QUESTION, formatMobile, isSaudiMobile, isStructuralCr, isStructuralNationalId } from '../model/config';
-import { asksPrerequisite, setIdentity, submitIdentify } from '../model/state';
+import { asksPrerequisite, capturesNotEligible, setIdentity, submitIdentify } from '../model/state';
 import { useProposed, useStepFocus } from '../store';
 import { Alert, ChoiceGroup, Field, StepHeader, TextInput, VerifyBadge } from '../ui/components';
 import { stageEyebrow } from './shared';
@@ -10,16 +10,18 @@ import { StepNav } from './StepNav';
 type Errors = Partial<Record<'identifier' | 'mobile' | 'prerequisite', string>>;
 
 /**
- * Page 2 — identifier, mobile and (self-onboarding only) one prerequisite declaration. Validation is
+ * Page 2 — identifier, mobile and (eligible applicants only) one prerequisite declaration. Only a
+ * Registered Business or a Freelancer with a certificate reaches this page. An unsupported category
+ * also comes here so a verified contact is kept, without being told it is eligible. Validation is
  * structural. On submit the backend checks its OWN records first (no provider): an existing
  * application or account gets the code on its registered mobile, never on the number typed here.
  */
 export function IdentifyStep() {
   const { state, apply, previewErrors } = useProposed();
-  const { identity, kyb, eligibility, throttled } = state.app;
+  const { identity, kyb, throttled } = state.app;
   const cr = kyb.kind === 'CR';
   const asks = asksPrerequisite(state.app);
-  const lead = eligibility?.result === 'SALES_LEAD';
+  const capture = capturesNotEligible(state.app);
   const [errors, setErrors] = useState<Errors>(previewErrors as Errors);
   const [checking, setChecking] = useState(false);
   const titleRef = useStepFocus<HTMLHeadingElement>();
@@ -45,15 +47,15 @@ export function IdentifyStep() {
     apply(submitIdentify);
   };
 
-  const title = lead ? (kyb.kind === 'FL_NO_CERT' ? 'Leave your details' : 'Our Sales team will help you get started') : 'Good news: you can apply online';
-  const description = lead
-    ? `Enter your ${cr ? 'Commercial Registration' : 'National ID'} and mobile number. We verify the number with a code; nothing else is needed.`
+  const title = capture ? 'Leave your details' : 'Good news: you can apply online';
+  const description = capture
+    ? `Enter your ${cr ? 'Commercial Registration' : 'National ID'} and mobile number. We verify the number with a code.`
     : cr ? 'Enter your Commercial Registration and your mobile number.' : 'Enter your National ID and your mobile number.';
 
   return (
     <section className="mb-card mb-card-narrow" aria-labelledby="mb-step-title">
       <StepHeader eyebrow={stageEyebrow('identify')} title={title} description={description} titleRef={titleRef} />
-      {!lead && <div className="mb-eligible-chip"><VerifyBadge state="verified">Eligible for online onboarding</VerifyBadge></div>}
+      {!capture && <div className="mb-eligible-chip"><VerifyBadge state="verified">Eligible for online onboarding</VerifyBadge></div>}
       <form className="mb-form" noValidate onSubmit={(ev) => { ev.preventDefault(); void next(); }}>
         <Field label={cr ? 'Commercial Registration (Unified Number)' : 'National ID Number'} hint={cr ? '10 digits, starts with 7.' : '10 digits, starts with 1.'} error={errors.identifier}>
           {({ id, describedBy, invalid }) => (

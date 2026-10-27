@@ -3,7 +3,7 @@ import { act, screen, within } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { renderAt } from '@/test/render';
 import { STAGES } from './model/config';
-import { OUTCOME_COPY } from './model/copy';
+import { NOT_ELIGIBLE_SAVED_COPY, OUTCOME_COPY } from './model/copy';
 import { DEMO, DEMO_SMS_CODE, demoIban } from './model/mock';
 import { scenarioById } from './model/scenarios';
 import { STORE_KEY } from './store';
@@ -57,10 +57,23 @@ describe('Page 1 — five questions only', () => {
     for (const t of ['Choose who is applying.', 'Choose a business category.', 'Choose a subcategory.', 'Select your annual revenue.', 'Choose how you sell.']) expect(screen.getByText(t)).toBeInTheDocument();
   });
 
-  it('a Freelancer in a CR-only category is blocked on Page 1 with a personalised reason', async () => {
+  it('Freelancer without a certificate: Not Eligible directly after Page 1 — no Identify, no National ID, no code', async () => {
+    const { user } = await open();
+    await kyb(user, { kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' });
+    expect(await screen.findByRole('heading', { name: OUTCOME_COPY.NOT_ELIGIBLE.title })).toBeInTheDocument();
+    expect(screen.getByText(/needs an active Freelancer Certificate/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/National ID|Mobile number|Verification code/)).toBeNull();
+  });
+
+  it('a Freelancer in a CR-only category continues to Identify + code, then Not Eligible with a personalised reason', async () => {
     const { user } = await open();
     await kyb(user, { kind: 'FL_CERT', group: 'food', sub: 'food-cafe' });
-    expect(await screen.findByRole('heading', { name: OUTCOME_COPY.BLOCKED.title })).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Leave your details' });
+    await user.type(screen.getByLabelText('National ID Number'), DEMO.nationalId);
+    await user.type(screen.getByLabelText('Mobile number'), DEMO.mobile);
+    await user.click(screen.getByRole('button', { name: 'Send code' }));
+    await code(user);
+    expect(await screen.findByRole('heading', { name: NOT_ELIGIBLE_SAVED_COPY.title })).toBeInTheDocument();
     expect(screen.getByText(/requires a registered business with a Commercial Registration/)).toBeInTheDocument();
   });
 });
@@ -185,23 +198,39 @@ describe('Existing records and routing after OTP', () => {
     expect(screen.getByText(/No new application was created/)).toBeInTheDocument();
   });
 
-  it('not an owner or manager: blocked with the personalised reason', async () => {
+  it('not an owner or manager: Not Eligible with the personalised reason', async () => {
     const { user } = start('id-cr-not-owner');
     await user.click(await screen.findByRole('button', { name: 'Send code' }));
     await code(user);
     expect(await screen.findByText(/available only to the owners and managers registered on the Commercial Registration/)).toBeInTheDocument();
   });
 
-  it('Sales lead: identifier + mobile only, code, then the Sales thank-you', async () => {
+  it.each([[/Above SAR 20,000,000/], [/Below SAR 100,000/]])('revenue %s: normal self-onboarding (no Sales route)', async (revenue) => {
     const { user } = await open();
-    await kyb(user, { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue: /Above SAR 20,000,000/ });
-    await screen.findByRole('heading', { name: 'Our Sales team will help you get started' });
+    await kyb(user, { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue });
+    await screen.findByRole('heading', { name: 'Good news: you can apply online' });
+    await user.type(screen.getByLabelText('Commercial Registration (Unified Number)'), DEMO.cr);
+    await user.type(screen.getByLabelText('Mobile number'), DEMO.mobile);
+    await user.click(screen.getByRole('radio', { name: 'Yes' }));
+    await user.click(screen.getByRole('button', { name: 'Send code' }));
+    await code(user);
+    expect(await screen.findByRole('heading', { name: 'Who is applying for this business?' })).toBeInTheDocument();
+    expect(screen.queryByText(/Sales team/)).toBeNull();
+  });
+
+  it('unsupported category: identifier + mobile (no "eligible" claim, no prerequisite), code, then "We’ve received your details"', async () => {
+    const { user } = await open();
+    await kyb(user, { kind: 'CR', group: 'fixture', sub: 'fixture-blocked' });
+    await screen.findByRole('heading', { name: 'Leave your details' });
+    expect(screen.queryByText('Eligible for online onboarding')).toBeNull();
     expect(screen.queryByRole('radio', { name: 'Yes' })).toBeNull();
     await user.type(screen.getByLabelText('Commercial Registration (Unified Number)'), DEMO.cr);
     await user.type(screen.getByLabelText('Mobile number'), DEMO.mobile);
     await user.click(screen.getByRole('button', { name: 'Send code' }));
     await code(user);
-    expect(await screen.findByRole('heading', { name: 'Thank you. Our Sales team will contact you.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: NOT_ELIGIBLE_SAVED_COPY.title })).toBeInTheDocument();
+    expect(screen.getByText('This business activity is currently not eligible for Madfu onboarding.')).toBeInTheDocument();
+    expect(screen.getByText(NOT_ELIGIBLE_SAVED_COPY.body)).toBeInTheDocument();
   });
 });
 
@@ -322,9 +351,10 @@ describe('Boards and Rules & Decisions', () => {
   it('Master Board and Detailed Logic Board render from the same model', async () => {
     const { user } = renderAt('/madfu/proposed?view=boards');
     expect(await screen.findByRole('heading', { name: 'Master boards' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Legend')).toHaveTextContent(/Merchant-facing step/);
-    expect(screen.getAllByText(/Existing check/).length).toBeGreaterThan(0);
+    const board = screen.getByRole('img', { name: /Master Board — the journey, screen by screen/ });
+    for (const t of ['Know Your Business', 'Not Eligible · Details Received', 'Resume Application', 'Application Progress', 'Owner / Manager', 'Business Details + IBAN']) expect(within(board).getAllByText(t).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('tab', { name: 'Detailed Logic Board' }));
+    expect(screen.getByLabelText('Legend')).toHaveTextContent(/Merchant-facing step/);
     expect(screen.getByRole('heading', { name: /E · Mobile ↔ National ID, then Nafath/ })).toBeInTheDocument();
   });
 

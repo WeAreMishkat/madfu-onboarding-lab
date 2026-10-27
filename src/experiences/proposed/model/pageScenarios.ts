@@ -44,23 +44,26 @@ const dropRecords = (a: Application, ...types: Array<keyof Application['verifica
 
 /* ------------------------------------------------------------------ Page 1 */
 
-const KYB_BASE: Kyb = { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue: 'SELF_SERVICE_BAND', channel: 'online' };
+const KYB_BASE: Kyb = { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue: 'MID_BAND', channel: 'online' };
 const fillKyb = (patch: Partial<Kyb>) => (s: ProposedState) => setKyb(s, { ...KYB_BASE, ...patch });
+
+/** Unsupported category, keeping the applicant type when it can reach Identify. */
+const unsupported = (s: ProposedState) => {
+  const kind = s.app.kyb.kind === 'FL_CERT' ? 'FL_CERT' : 'CR';
+  return setKyb(s, { ...KYB_BASE, kind, group: 'fixture', sub: 'fixture-blocked' });
+};
 
 const kyb: PageDef = {
   title: 'Know Your Business',
-  intro: 'Preliminary eligibility from five answers, decided internally before any identity, OTP or paid check. Options fill the form; press Check eligibility.',
+  intro: 'Preliminary eligibility from five answers, decided internally before any identity, OTP or paid check. Only two outcomes: Eligible or Not Eligible; revenue never changes the result. Options fill the form; press Check eligibility.',
   integrations: ['None — internal eligibility rules only'],
   groups: () => [{
-    title: 'Eligibility result',
+    title: 'Eligibility',
     options: [
-      { id: 'eligible', label: 'Self-onboarding (registered business)', run: fillKyb({}) },
-      { id: 'eligible-fl', label: 'Self-onboarding (Freelancer)', run: fillKyb({ kind: 'FL_CERT', group: 'services', sub: 'services-design' }) },
-      { id: 'sales', label: 'Sales lead (above SAR 20M)', run: fillKyb({ revenue: 'ABOVE_20M' }) },
-      { id: 'no-cert', label: 'Freelancer without certificate', run: fillKyb({ kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
-      { id: 'blocked', label: 'Blacklisted category', run: fillKyb({ group: 'fixture', sub: 'fixture-blocked' }) },
-      { id: 'cr-required', label: 'Freelancer: activity requires a CR', run: fillKyb({ kind: 'FL_CERT', group: 'food', sub: 'food-cafe' }) },
-      { id: 'channel', label: 'Freelancer: online-only category, sells offline', run: fillKyb({ kind: 'FL_CERT', group: 'retail', sub: 'retail-electronics', channel: 'offline' }) }
+      { id: 'eligible', label: 'Eligible Registered Business', run: fillKyb({}) },
+      { id: 'eligible-fl', label: 'Eligible Freelancer', run: fillKyb({ kind: 'FL_CERT', group: 'services', sub: 'services-design' }) },
+      { id: 'no-cert', label: 'Freelancer without Certificate → Not Eligible', run: fillKyb({ kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
+      { id: 'unsupported', label: 'Unsupported Category → Identify / OTP → Not Eligible', run: unsupported }
     ]
   }]
 };
@@ -84,7 +87,8 @@ const identify: PageDef = {
         existenceOpt('auto', 'New applicant'),
         existenceOpt('incomplete', 'Application already in progress'),
         existenceOpt('submitted', 'Application already submitted'),
-        existenceOpt('live', 'Already a Madfu merchant')
+        existenceOpt('live', 'Already a Madfu merchant'),
+        existenceOpt('not_eligible', 'Saved as Not Eligible earlier')
       ]
     }];
     if (asksPrerequisite(s.app)) {
@@ -93,7 +97,7 @@ const identify: PageDef = {
         title: cr ? 'Owner or manager on the CR?' : 'IBAN linked to the certificate?',
         options: [
           { id: 'pre-yes', label: 'Yes → continue', run: (x) => setIdentity(x, { prerequisite: 'yes' }), current: (x) => x.app.identity.prerequisite === 'yes' },
-          { id: 'pre-no', label: cr ? 'No → not available online (V1)' : 'No → link the bank account first', run: (x) => setIdentity(x, { prerequisite: 'no' }), current: (x) => x.app.identity.prerequisite === 'no' }
+          { id: 'pre-no', label: cr ? 'No → Not Eligible (V1)' : 'No → Not Eligible: link the bank account first', run: (x) => setIdentity(x, { prerequisite: 'no' }), current: (x) => x.app.identity.prerequisite === 'no' }
         ]
       });
     }
@@ -220,7 +224,7 @@ const nafath: PageDef = {
         note: 'Hidden from the applicant: no certificate detail is shown before Nafath.',
         options: [
           { id: 'pre-found', label: 'Certificate exists', run: certPre('one') },
-          { id: 'pre-none', label: 'No certificate → lead, no Nafath', run: certPre('none') },
+          { id: 'pre-none', label: 'No certificate → Not Eligible, no Nafath', run: certPre('none') },
           { id: 'pre-unavailable', label: 'Certificate service unavailable', run: certPre('unavailable') }
         ]
       });
@@ -370,7 +374,7 @@ const contract: PageDef = {
 
 const outcome: PageDef = {
   title: 'Outcome',
-  intro: 'End page. Re-entering with the same identifier routes by the saved lifecycle status.',
+  intro: 'End page. Re-entering with the same identifier routes by the saved lifecycle status (a saved Not Eligible record reopens this confirmation).',
   integrations: [],
   groups: (s) => {
     if (s.app.outcome === 'PAUSED_CR') return [{ title: 'Sales recovery (internal)', note: 'No merchant-facing refresh: only Sales re-checks the CR, after it is corrected.', options: [{ id: 'recover', label: 'Sales: CR corrected → controlled re-check', run: salesRecoverCr }] }];
@@ -419,4 +423,4 @@ export function reuseNote(s: ProposedState): string | null {
 }
 
 /** Existence values the record-lookup options can force (for docs and tests). */
-export const EXISTENCE_OPTIONS: Existence[] = ['new', 'incomplete', 'submitted', 'live'];
+export const EXISTENCE_OPTIONS: Existence[] = ['new', 'incomplete', 'submitted', 'live', 'not_eligible'];

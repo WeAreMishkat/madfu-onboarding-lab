@@ -34,17 +34,18 @@ export const proposedComparison: ComparisonProfile = {
     { label: 'Eligibility engine and internal existence check before any external cost', status: 'PROPOSED' },
     { label: 'CR data (several activities), owners / managers retrieved; no CR confirmation page', appliesTo: 'Registered business', status: 'PROPOSED' },
     { label: 'Government activity is the verified category (and the pricing category)', status: 'PROPOSED' },
-    { label: 'Backend risk score separate from hard blocks (CR age is a risk factor)', status: 'PROPOSED' },
+    { label: 'Backend risk score separate from Not Eligible rules (CR age and revenue are risk factors)', status: 'PROPOSED' },
     { label: 'Freelancer Certificate pre-check before Nafath (backend cost order)', appliesTo: 'Freelancer', status: 'PROPOSED' },
     { label: 'Mobile ↔ National ID check before Nafath', status: 'PROPOSED' },
     { label: 'Verified checks reused: resume costs one OTP', status: 'PROPOSED' }
   ],
   branches: [
-    { label: 'Blocked on Page 1 with a personalised reason, before cost', status: 'PROPOSED' },
-    { label: 'Sales lead after OTP; no further data', status: 'PROPOSED' },
+    { label: 'Only two eligibility outcomes: Eligible / Not Eligible; revenue never routes to Sales', status: 'PROPOSED' },
+    { label: 'Freelancer without certificate → Not Eligible on Page 1 (no Identify, no OTP)', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'Unsupported category → Identify + OTP → Not Eligible, details saved; no paid check', status: 'PROPOSED' },
     { label: 'Existing application → registered-mobile OTP → resume / Application Progress / login', status: 'PROPOSED' },
     { label: 'Expired / suspended CR → saved + Sales recovery', appliesTo: 'Registered business', status: 'PROPOSED' },
-    { label: 'No certificate → lead, no Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
+    { label: 'No certificate found → Not Eligible, no Nafath', appliesTo: 'Freelancer', status: 'PROPOSED' },
     { label: 'Mobile mismatch → another mobile + OTP → check again', status: 'PROPOSED' },
     { label: 'Nafath failed twice → manual verification, no contract', status: 'PROPOSED' }
   ],

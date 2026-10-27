@@ -44,13 +44,13 @@ export const matchingActivity = (sub: string) => ACTIVITIES.find((a) => a.mapped
 
 export interface CategoryResult {
   check: CategoryCheck;
-  /** Hard block from the VERIFIED activity (e.g. a regulated activity), whatever was declared. */
+  /** Not Eligible from the VERIFIED activity (e.g. a regulated activity), whatever was declared. */
   block: ReasonCode | null;
 }
 
 /**
  * Derive the verified category. Order (demo rule, final reconciliation is an open decision):
- * 1. any mapped activity that is not eligible for this applicant → hard block (it cannot be hidden
+ * 1. any mapped activity that is not eligible for this applicant → Not Eligible (it cannot be hidden
  *    behind a declared category);
  * 2. an activity that maps to the declared subcategory → CONFIRMED (declared = verified);
  * 3. otherwise the primary mapped activity → RECLASSIFIED (government wins; internal flag);
@@ -62,8 +62,8 @@ export function deriveCategory(kind: ApplicantKind, declaredSub: string, source:
   const base = { source, declaredSub, activities: mapped };
   for (const m of mapped) {
     if (!m.mappedSub) continue;
-    const e = evaluateEligibility({ kind, sub: m.mappedSub, revenue: 'SELF_SERVICE_BAND', channel });
-    if (e.result === 'BLOCKED') {
+    const e = evaluateEligibility({ kind, sub: m.mappedSub, revenue: 'MID_BAND', channel });
+    if (e.result === 'NOT_ELIGIBLE') {
       const reason: ReasonCode = e.reason === 'ACTIVITY_REQUIRES_CR' || e.reason === 'CHANNEL_NOT_SUPPORTED' ? e.reason : 'ACTIVITY_REGULATED';
       return { check: { ...base, verifiedSub: m.mappedSub, outcome: 'RECLASSIFIED' }, block: reason };
     }

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { deriveCategory } from './activity';
-import { LIMITS, RULE_FLAGS, STAGES } from './config';
+import { LIMITS, REVENUE_OPTIONS, RULE_FLAGS, STAGES } from './config';
 import { OUTCOME_COPY } from './copy';
-import { evaluateEligibility } from './eligibility';
+import { CATEGORIES, ELIGIBILITY_RULES, evaluateEligibility } from './eligibility';
 import { GOV_RULES, evaluateGovernment } from './government';
 import { DEMO, DEMO_SMS_CODE, demoIban } from './mock';
 import { buildOffer, pricingSub } from './pricing';
 import { HARD_BLOCKS, RISK_CONFIG, assessRisk } from './risk';
 import { SCENARIOS, scenarioById } from './scenarios';
 import {
-  addEvidence, agreeAndSubmit, cancelEdit, confirmCertificate, confirmOffer, continueAfterNafath, continueFromReview, continueToNafath,
+  addEvidence, agreeAndSubmit, asksPrerequisite, cancelEdit, capturesNotEligible, confirmCertificate, confirmOffer, continueAfterNafath, continueFromReview, continueToNafath,
   existenceFor, finishIbanCheck, firstIncomplete, goLive, initialSim, initialState, leaveSession, loadCertificates, nafathResult, openContinueLink, prefill,
   reviewerBack, reviewerBackTarget, requestRateReview, resendOtp, routeFor, runBusinessVerification, runCertificatePrecheck, salesRecoverCr, selectPerson, sendContinueLink,
   sendToNafath, setIban, setIdentity, setKyb, setPresence, setReviewStatus, startEdit, startIbanCheck, startMobileChange, submitBusiness, submitIdentify,
@@ -24,8 +24,8 @@ const calls = (s: ProposedState, from = 0) => callsSince(s.app, from).map((e) =>
 const paid = (s: ProposedState, from = 0) => calls(s, from).filter((c) => c !== 'OTP');
 const simWith = (patch: Partial<Sim> = {}, cr: Partial<Sim['cr']> = {}): Sim => { const b = initialSim(); return { ...b, ...patch, cr: { ...b.cr, ...cr } }; };
 
-const CR_KYB: Kyb = { kind: 'CR', group: 'food', sub: 'food-cafe', revenue: 'SELF_SERVICE_BAND', channel: 'both' };
-const FL_KYB: Kyb = { kind: 'FL_CERT', group: 'services', sub: 'services-design', revenue: 'SELF_SERVICE_BAND', channel: 'online' };
+const CR_KYB: Kyb = { kind: 'CR', group: 'food', sub: 'food-cafe', revenue: 'MID_BAND', channel: 'both' };
+const FL_KYB: Kyb = { kind: 'FL_CERT', group: 'services', sub: 'services-design', revenue: 'MID_BAND', channel: 'online' };
 
 /** Page 1 → Page 2 → OTP on a fresh browser state. */
 function apply(kyb: Kyb, who: { identifier?: string; mobile?: string; prerequisite?: 'yes' | 'no' } = {}, sim: Sim = initialSim(), base?: ProposedState): ProposedState {
@@ -52,23 +52,43 @@ describe('Page 1 — Know Your Business', () => {
     expect(calls(ok)).toEqual([]);
   });
 
-  it('routes self-onboarding, Sales lead and blocked; categories are allowed or blocked only', () => {
-    const e = (kind: Kyb['kind'], sub: string, revenue: Kyb['revenue'] = 'SELF_SERVICE_BAND', channel: Kyb['channel'] = 'online') => evaluateEligibility({ kind: kind!, sub, revenue: revenue!, channel: channel! });
-    expect(e('CR', 'retail-fashion').result).toBe('SELF_ONBOARDING');
-    expect(e('CR', 'retail-fashion', 'ABOVE_20M').result).toBe('SALES_LEAD');
-    expect(e('CR', 'fixture-blocked').reason).toBe('CATEGORY_NOT_SUPPORTED');
-    expect(e('FL_CERT', 'food-cafe').reason).toBe('ACTIVITY_REQUIRES_CR');
-    expect(e('FL_CERT', 'retail-electronics', 'SELF_SERVICE_BAND', 'offline').reason).toBe('CHANNEL_NOT_SUPPORTED');
-    expect(e('FL_NO_CERT', 'services-design').result).toBe('SALES_LEAD');
+  it('only two outcomes, Eligible / Not Eligible; revenue never changes the result', () => {
+    const e = (kind: Kyb['kind'], sub: string, revenue: Kyb['revenue'] = 'MID_BAND', channel: Kyb['channel'] = 'online') => evaluateEligibility({ kind: kind!, sub, revenue: revenue!, channel: channel! });
+    expect(new Set(ELIGIBILITY_RULES.map((r) => r.result))).toEqual(new Set(['ELIGIBLE', 'NOT_ELIGIBLE']));
+    for (const revenue of REVENUE_OPTIONS.map((o) => o.value)) {
+      expect(e('CR', 'retail-fashion', revenue)).toMatchObject({ result: 'ELIGIBLE', notEligibleAt: null });
+      expect(e('FL_CERT', 'services-design', revenue)).toMatchObject({ result: 'ELIGIBLE', notEligibleAt: null });
+    }
+    // No rule reads revenue: every applicant / category / channel gives the same result in every band.
+    for (const kind of ['CR', 'FL_CERT', 'FL_NO_CERT'] as const) for (const g of CATEGORIES) for (const sub of g.subs) for (const channel of ['online', 'offline', 'both'] as const) {
+      const results = REVENUE_OPTIONS.map((o) => e(kind, sub.id, o.value, channel)).map((r) => `${r.result}:${r.reason}`);
+      expect(new Set(results).size, `${kind} ${sub.id} ${channel}`).toBe(1);
+    }
+    expect(e('CR', 'fixture-blocked')).toMatchObject({ result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'CATEGORY_NOT_SUPPORTED' });
+    expect(e('FL_CERT', 'food-cafe')).toMatchObject({ result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'ACTIVITY_REQUIRES_CR' });
+    expect(e('FL_CERT', 'retail-electronics', 'MID_BAND', 'offline').reason).toBe('CHANNEL_NOT_SUPPORTED');
+    expect(e('FL_NO_CERT', 'services-design')).toMatchObject({ result: 'NOT_ELIGIBLE', notEligibleAt: 'KYB', reason: 'FL_CERT_REQUIRED' });
     // Gold & jewellery is prohibited for both types: a Freelancer is not told to get a CR for it.
     expect(e('FL_CERT', 'retail-jewelry').reason).toBe('REGULATORY_RESTRICTION');
   });
 
-  it('a blocked category stops on Page 1 with a personalised reason and no external call', () => {
-    const s = submitKyb(setKyb(initialState(), { ...CR_KYB, group: 'fixture', sub: 'fixture-blocked' }));
-    expect(s.app.outcome).toBe('BLOCKED');
-    expect(s.app.outcomeReason).toBe('CATEGORY_NOT_SUPPORTED');
+  it('Freelancer without certificate: Not Eligible directly on Page 1 — no Identify, no National ID, no OTP, no call', () => {
+    const s = submitKyb(setKyb(initialState(), { ...FL_KYB, kind: 'FL_NO_CERT' }));
+    expect(s.app).toMatchObject({ step: 'outcome', outcome: 'NOT_ELIGIBLE', status: 'NOT_ELIGIBLE', outcomeReason: 'FL_CERT_REQUIRED', id: null });
+    expect(s.app.identity.identifier).toBe('');
+    expect(s.backend.sms).toEqual([]);
     expect(calls(s)).toEqual([]);
+  });
+
+  it('an unsupported category is NOT stopped on Page 1: it continues to Identify, with no prerequisite question', () => {
+    for (const kind of ['CR', 'FL_CERT'] as const) {
+      const s = submitKyb(setKyb(initialState(), { ...(kind === 'CR' ? CR_KYB : FL_KYB), group: 'fixture', sub: 'fixture-blocked' }));
+      expect(s.app.step).toBe('identify');
+      expect(s.app.outcome).toBeNull();
+      expect(capturesNotEligible(s.app)).toBe(true);
+      expect(asksPrerequisite(s.app)).toBe(false);
+      expect(calls(s)).toEqual([]);
+    }
   });
 });
 
@@ -94,15 +114,16 @@ describe('Page 2 — identifier, mobile, prerequisite; existence check before OT
     expect(s.app.step).toBe('persons');
   });
 
-  it('CR owner / manager = No: blocked after OTP with a personalised reason, before any paid check', () => {
+  it('CR owner / manager = No: Not Eligible after OTP with a personalised reason, before any paid check', () => {
     const s = otp(apply(CR_KYB, { prerequisite: 'no' }));
-    expect(s.app.outcome).toBe('BLOCKED');
+    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
     expect(s.app.outcomeReason).toBe('NOT_OWNER_MANAGER');
     expect(paid(s)).toEqual([]);
   });
 
-  it('Freelancer IBAN linked = No: blocked with the linkage instruction, before any paid check', () => {
+  it('Freelancer IBAN linked = No: Not Eligible with the linkage instruction, before any paid check', () => {
     const s = otp(apply(FL_KYB, { prerequisite: 'no' }));
+    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
     expect(s.app.outcomeReason).toBe('FL_IBAN_NOT_LINKED');
     expect(paid(s)).toEqual([]);
   });
@@ -116,22 +137,48 @@ describe('Page 2 — identifier, mobile, prerequisite; existence check before OT
   });
 });
 
-describe('Sales lead', () => {
-  it('CR above the configured threshold: OTP, lead persisted, Sales thank-you; no CR / Nafath / banking / contract', () => {
-    const s = otp(apply({ ...CR_KYB, revenue: 'ABOVE_20M' }));
-    expect(s.app.outcome).toBe('SALES_LEAD');
-    expect(s.app.status).toBe('SALES_LEAD');
-    expect(s.backend.leads).toHaveLength(1);
-    expect(s.backend.leads[0]).toMatchObject({ identifier: DEMO.cr, mobile: DEMO.mobile, reason: 'REVENUE_ABOVE_BAND' });
+describe('Not Eligible after Identify + OTP (unsupported category)', () => {
+  it.each([['CR', CR_KYB], ['FL_CERT', FL_KYB]] as const)('%s: OTP to the entered mobile, details saved, Not Eligible; no paid verification', (_, kyb) => {
+    const sent = apply({ ...kyb, group: 'fixture', sub: 'fixture-blocked' }, { prerequisite: undefined });
+    expect(sent.app.step).toBe('otp');
+    expect(sent.app.otp).toMatchObject({ purpose: 'application', to: DEMO.mobile });
+    const s = otp(sent);
+    expect(s.app).toMatchObject({ step: 'outcome', outcome: 'NOT_ELIGIBLE', status: 'NOT_ELIGIBLE', outcomeReason: 'CATEGORY_NOT_SUPPORTED', contactMobileVerified: true, registeredMobile: DEMO.mobile });
+    expect(s.app.id).toMatch(/^APP-/);
+    expect(s.backend.notEligible).toHaveLength(1);
+    expect(s.backend.notEligible[0]).toMatchObject({ identifier: kyb.kind === 'CR' ? DEMO.cr : DEMO.nationalId, mobile: DEMO.mobile, reason: 'CATEGORY_NOT_SUPPORTED', kyb: { sub: 'fixture-blocked' } });
+    // Only the OTP: no CR data, owners, mobile match, Nafath, certificate or IBAN call.
     expect(paid(s)).toEqual([]);
     expect(routeFor(s.app)).toBe('outcome');
+    expect(reviewerBackTarget(s.app)).toBeNull();
   });
 
-  it('Freelancer without certificate: lead with its KYB answers, no verification', () => {
-    const s = otp(apply({ ...FL_KYB, kind: 'FL_NO_CERT' }));
-    expect(s.app.outcome).toBe('FL_CERT_REQUIRED');
-    expect(s.backend.leads[0].kyb.sub).toBe('services-design');
-    expect(paid(s)).toEqual([]);
+  it('re-entry with a saved Not Eligible record: code to the REGISTERED mobile → the Not Eligible confirmation; no new record', () => {
+    const first = otp(apply({ ...CR_KYB, group: 'fixture', sub: 'fixture-blocked' }));
+    const again = apply(CR_KYB, { mobile: DEMO.otherMobile }, initialSim(), first);
+    expect(again.app.existence).toBe('not_eligible');
+    expect(again.app.otp).toMatchObject({ purpose: 'registered', to: DEMO.mobile });
+    const s = otp(again);
+    expect(s.app).toMatchObject({ step: 'outcome', outcome: 'NOT_ELIGIBLE', id: first.app.id });
+    expect(Object.keys(s.backend.applications)).toHaveLength(1);
+  });
+});
+
+describe('Revenue never routes: every band self-onboards when otherwise eligible', () => {
+  it.each(['BELOW_100K', 'MID_BAND', 'ABOVE_20M'] as const)('registered business %s → self-onboarding (DRAFT, owner / manager)', (revenue) => {
+    const s = otp(apply({ ...CR_KYB, revenue }));
+    expect(s.app).toMatchObject({ status: 'DRAFT', step: 'persons', outcome: null });
+    expect(asksPrerequisite(submitKyb(setKyb(initialState(), { ...CR_KYB, revenue })).app)).toBe(true);
+  });
+
+  it.each(['BELOW_100K', 'ABOVE_20M'] as const)('Freelancer with certificate %s → self-onboarding (DRAFT, Nafath)', (revenue) => {
+    expect(otp(apply({ ...FL_KYB, revenue })).app).toMatchObject({ status: 'DRAFT', step: 'nafath' });
+  });
+
+  it('revenue is still collected and is a risk input', () => {
+    const s = otp(apply({ ...CR_KYB, revenue: 'ABOVE_20M' }));
+    expect(s.app.kybSnapshot?.revenue).toBe('ABOVE_20M');
+    expect(assessRisk(s.app).factors.find((f) => f.factor === 'Declared revenue')?.value).toBe('ABOVE_20M');
   });
 });
 
@@ -190,17 +237,17 @@ describe('Existing records: registered-mobile OTP, status-aware routing', () => 
   });
 
   it('forced existence from the Prototype Controls uses a stored mobile ending 123', () => {
-    for (const existence of ['incomplete', 'submitted', 'live'] as const) {
+    for (const existence of ['incomplete', 'submitted', 'live', 'not_eligible'] as const) {
       const s = apply(CR_KYB, {}, simWith({ existence }));
       expect(s.app.existence).toBe(existence);
       expect(s.app.otp.to).toBe(DEMO.registeredMobile);
-      expect(otp(s).app.step).toBe(existence === 'incomplete' ? 'business' : existence === 'submitted' ? 'status' : 'login');
+      expect(otp(s).app.step).toBe({ incomplete: 'business', submitted: 'status', live: 'login', not_eligible: 'outcome' }[existence]);
     }
   });
 
-  it('existence is an internal lookup: Sales leads and blocked records do not stop a new attempt', () => {
-    const lead = otp(apply({ ...CR_KYB, revenue: 'ABOVE_20M' }));
-    expect(existenceFor({ ...leaveSession(lead), app: { ...leaveSession(lead).app, identity: { identifier: DEMO.cr, mobile: DEMO.mobile, prerequisite: 'yes' } } }).existence).toBe('new');
+  it('existence is an internal lookup: an identifier stopped on Page 1 left no record', () => {
+    const stopped = submitKyb(setKyb(initialState(), { ...FL_KYB, kind: 'FL_NO_CERT' }));
+    expect(existenceFor({ ...leaveSession(stopped), app: { ...leaveSession(stopped).app, identity: { identifier: DEMO.nationalId, mobile: DEMO.mobile, prerequisite: 'yes' } } }).existence).toBe('new');
   });
 });
 
@@ -355,12 +402,12 @@ describe('Freelancer: certificate pre-check before Nafath (cost order)', () => {
     expect(paid(s)).toEqual(['FL_CERTS', 'MOBILE_MATCH', 'NAFATH']);
   });
 
-  it('no certificate → certificate-required lead, and NO Nafath call', () => {
+  it('no certificate → Not Eligible, and NO Nafath call', () => {
     const s = runCertificatePrecheck(otp(apply(FL_KYB, {}, simWith({ certificates: 'none' }))));
-    expect(s.app.outcome).toBe('FL_CERT_REQUIRED');
+    expect(s.app.outcome).toBe('NOT_ELIGIBLE');
     expect(s.app.outcomeReason).toBe('FL_CERT_NOT_FOUND');
     expect(paid(s)).toEqual(['FL_CERTS']);
-    expect(s.backend.leads).toHaveLength(1);
+    expect(s.backend.notEligible).toHaveLength(1);
   });
 
   it('certificate details stay hidden until Nafath; afterwards they are shown without a new call', () => {
@@ -528,8 +575,8 @@ describe('Reviewer-only Back (Prototype Controls)', () => {
     expect(reviewerBackTarget(apply(CR_KYB, {}, simWith({ existence: 'incomplete' })).app)).toBeNull();
     expect(reviewerBackTarget(startEdit(withSaved(prefill('CR', 'review')), 'presence').app)).toBeNull();
     expect(reviewerBackTarget(withSaved(prefill('CR', 'status')).app)).toBeNull();
-    const blocked = submitKyb(setKyb(initialState(), { ...CR_KYB, group: 'fixture', sub: 'fixture-blocked' }));
-    expect(reviewerBack(blocked).app).toMatchObject({ step: 'kyb', outcome: null, status: 'QUALIFICATION' });
+    const stopped = submitKyb(setKyb(initialState(), { ...FL_KYB, kind: 'FL_NO_CERT' }));
+    expect(reviewerBack(stopped).app).toMatchObject({ step: 'kyb', outcome: null, status: 'QUALIFICATION' });
   });
 
   it('re-submitting Page 2 after stepping back cannot create a second application', () => {

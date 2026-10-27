@@ -37,8 +37,8 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
   const links = backend.sms.filter((m) => m.kind === 'continue-link').slice().reverse();
   const cat = app.categoryCheck;
   const cost = knownCost(app);
-  const lead = backend.leads.find((l) => l.applicationId === app.id);
-  const hardBlock = app.status === 'BLOCKED' || app.status === 'PAUSED_CR' ? app.outcomeReason : null;
+  const saved = backend.notEligible.find((l) => l.applicationId === app.id);
+  const stopReason = app.status === 'NOT_ELIGIBLE' || app.status === 'PAUSED_CR' ? app.outcomeReason : null;
   const backTo = reviewerBackTarget(app);
 
   return (
@@ -138,10 +138,10 @@ export function InternalPanel({ onClose }: { onClose: () => void }) {
             <dl className="ip-dl">
               <Row k="Existing record match">{app.existence ?? 'not checked yet'}</Row>
               <Row k="Opens at (status-aware)">{app.id ? routeFor(app) : app.step}</Row>
-              <Row k="Eligibility (Page 1)">{e ? `${e.result} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</Row>
+              <Row k="Eligibility (Page 1)">{e ? `${e.result}${e.notEligibleAt ? ` (shown ${e.notEligibleAt === 'KYB' ? 'on Page 1' : 'after OTP'})` : ''} · ${REASON_LABEL[e.reason]}` : 'not evaluated'}</Row>
               <Row k="Rule version">{e?.ruleset ?? '—'}</Row>
-              <Row k="Hard block">{hardBlock ? `${hardBlock} · ${REASON_LABEL[hardBlock]}` : 'none'}</Row>
-              <Row k="Sales lead">{lead ? `persisted · ${lead.reason}` : app.status === 'SALES_LEAD' ? 'yes' : 'no'}</Row>
+              <Row k="Not Eligible / paused reason">{stopReason ? `${stopReason} · ${REASON_LABEL[stopReason]}` : 'none'}</Row>
+              <Row k="Not Eligible record (verified contact)">{saved ? `saved · ${saved.reason}` : 'no'}</Row>
               <Row k="Next expected step">{nextPaidCall(state)}</Row>
             </dl>
           </Section>

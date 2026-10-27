@@ -23,18 +23,18 @@ export const stageOf = (step: string) => STAGES.find((s) => (s.steps as readonly
 /* ------------------------------------------------------------------ revenue */
 
 /**
- * PROVISIONAL: the exact treatment of SAR 100,000 and SAR 20,000,000 is a policy boundary to confirm.
- * The prototype uses non-overlapping bands: below 100,000 / 100,000 to 20,000,000 / above 20,000,000.
- * The Sales threshold is configuration, never a screen constant.
+ * Revenue bands collected on Page 1: below 100,000 / 100,000 to 20,000,000 / above 20,000,000.
+ * Revenue NEVER routes (no Sales lead): every band can self-onboard when otherwise eligible. It is
+ * stored and used as a backend risk input only. Band boundaries are configuration.
  */
-export const REVENUE_RULE = { selfServiceFromSar: 100_000, salesAboveSar: 20_000_000, provisional: true };
+export const REVENUE_RULE = { lowerSar: 100_000, upperSar: 20_000_000, provisional: true };
 
 const sar = (n: number) => `SAR ${n.toLocaleString('en-US')}`;
 
 export const REVENUE_OPTIONS: Array<{ value: Revenue; label: string }> = [
-  { value: 'BELOW_100K', label: `Below ${sar(REVENUE_RULE.selfServiceFromSar)}` },
-  { value: 'SELF_SERVICE_BAND', label: `${sar(REVENUE_RULE.selfServiceFromSar)}–${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')}` },
-  { value: 'ABOVE_20M', label: `Above ${sar(REVENUE_RULE.salesAboveSar)}` }
+  { value: 'BELOW_100K', label: `Below ${sar(REVENUE_RULE.lowerSar)}` },
+  { value: 'MID_BAND', label: `${sar(REVENUE_RULE.lowerSar)}–${REVENUE_RULE.upperSar.toLocaleString('en-US')}` },
+  { value: 'ABOVE_20M', label: `Above ${sar(REVENUE_RULE.upperSar)}` }
 ];
 export const revenueLabel = (r: Revenue | null) => REVENUE_OPTIONS.find((o) => o.value === r)?.label ?? '';
 
@@ -46,7 +46,7 @@ export const KIND_OPTIONS: Array<{ value: ApplicantKind; label: string; descript
 export const kindLabel = (k: ApplicantKind | null) => KIND_OPTIONS.find((o) => o.value === k)?.label ?? '';
 export const isFreelancer = (k: ApplicantKind | null) => k === 'FL_CERT' || k === 'FL_NO_CERT';
 
-/** Page-2 prerequisite question per applicant type (self-onboarding routes only). */
+/** Page-2 prerequisite question per applicant type (eligible applicants only). */
 export const PREREQUISITE_QUESTION: Partial<Record<ApplicantKind, string>> = {
   CR: 'Are you an owner or manager registered on this CR?',
   FL_CERT: 'Is your IBAN linked to your Freelancer Certificate?'

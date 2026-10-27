@@ -1,9 +1,9 @@
 /**
  * Backend merchant-risk model (never shown to the merchant).
  *
- * ARCHITECTURE RULE: hard blocks and risk scores are separate. A HARD BLOCK is a regulatory or
- * business condition that cannot continue (model/eligibility.ts, model/government.ts, prerequisite
- * declarations). A RISK SCORE only weighs factors into Low / Medium / High. A hard rule is never turned
+ * ARCHITECTURE RULE: Not Eligible rules and risk scores are separate. A NOT ELIGIBLE rule is a
+ * regulatory or business condition that cannot continue (model/eligibility.ts, model/government.ts, prerequisite
+ * declarations). A RISK SCORE only weighs factors into Low / Medium / High. A Not Eligible rule is never turned
  * into a score to let a merchant continue, and a score alone never rejects.
  *
  * SYNTHETIC DEMO WEIGHTS. Production factors, weights and thresholds are open RISK decisions.
@@ -20,7 +20,7 @@ export const RISK_CONFIG = {
     { label: '12–24 months', maxMonths: 24, points: 2 },
     { label: 'Over 24 months', maxMonths: Number.POSITIVE_INFINITY, points: 1 }
   ],
-  revenue: { BELOW_100K: 2, SELF_SERVICE_BAND: 1, ABOVE_20M: 0 } as Record<string, number>,
+  revenue: { BELOW_100K: 2, MID_BAND: 1, ABOVE_20M: 0 } as Record<string, number>,
   /** Category tier from the VERIFIED category group. */
   categoryGroup: { retail: 2, food: 1, services: 1, fixture: 1 } as Record<string, number>,
   entity: { SAUDI: 0, NON_SAUDI: 2 } as Record<string, number>,
@@ -50,16 +50,21 @@ export function assessRisk(app: Application): RiskAssessment {
   return { model: RISK_MODEL_VERSION, score, level: levelFor(score), factors };
 }
 
-/** Hard blocks known to the prototype (each is a rule, never a score). */
+/**
+ * Not Eligible rules known to the prototype (each is a rule, never a score), plus the paused CR route.
+ * "Not Eligible" is the only merchant-facing term; the reason code stays internal.
+ */
 export const HARD_BLOCKS: Array<{ reason: ReasonCode; where: string; source: string; route: string }> = [
-  { reason: 'CATEGORY_NOT_SUPPORTED', where: 'Page 1 (declared) and after retrieval (verified)', source: 'Eligibility Matrix', route: 'Blocked, personalised reason' },
-  { reason: 'REGULATORY_RESTRICTION', where: 'Page 1', source: 'Eligibility Matrix (regulatory)', route: 'Blocked, personalised reason' },
-  { reason: 'ACTIVITY_REQUIRES_CR', where: 'Page 1 / certificate activity', source: 'Eligibility Matrix (regulatory)', route: 'Blocked, personalised reason' },
-  { reason: 'CHANNEL_NOT_SUPPORTED', where: 'Page 1', source: 'Eligibility Matrix', route: 'Blocked, personalised reason' },
-  { reason: 'ACTIVITY_REGULATED', where: 'After CR / certificate retrieval', source: 'Government activity mapping', route: 'Blocked, personalised reason' },
-  { reason: 'NOT_OWNER_MANAGER', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Blocked; delegated onboarding is out of V1' },
-  { reason: 'NO_OWNER_MANAGER_ON_CR', where: 'After people retrieval', source: 'Government associated parties', route: 'Blocked; declaration not confirmed by government data' },
-  { reason: 'FL_IBAN_NOT_LINKED', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Blocked until the bank account is linked' },
+  { reason: 'FL_CERT_REQUIRED', where: 'Page 1', source: 'Applicant type', route: 'Not Eligible immediately — no Identify, no OTP' },
+  { reason: 'CATEGORY_NOT_SUPPORTED', where: 'Page 1 (declared) and after retrieval (verified)', source: 'Eligibility Matrix', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
+  { reason: 'REGULATORY_RESTRICTION', where: 'Page 1', source: 'Eligibility Matrix (regulatory)', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
+  { reason: 'ACTIVITY_REQUIRES_CR', where: 'Page 1 / certificate activity', source: 'Eligibility Matrix (regulatory)', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
+  { reason: 'CHANNEL_NOT_SUPPORTED', where: 'Page 1', source: 'Eligibility Matrix', route: 'Identify → OTP → Not Eligible (details saved, no paid check)' },
+  { reason: 'ACTIVITY_REGULATED', where: 'After CR / certificate retrieval', source: 'Government activity mapping', route: 'Not Eligible, personalised reason' },
+  { reason: 'NOT_OWNER_MANAGER', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Not Eligible; delegated onboarding is out of V1' },
+  { reason: 'NO_OWNER_MANAGER_ON_CR', where: 'After people retrieval', source: 'Government associated parties', route: 'Not Eligible; declaration not confirmed by government data' },
+  { reason: 'FL_IBAN_NOT_LINKED', where: 'Page 2 declaration (after OTP)', source: 'Applicant declaration', route: 'Not Eligible until the bank account is linked' },
+  { reason: 'FL_CERT_NOT_FOUND', where: 'Certificate pre-check (before Nafath)', source: 'Freelance platform', route: 'Not Eligible; no Nafath call' },
   { reason: 'CR_EXPIRED', where: 'After CR retrieval', source: 'Government CR status', route: 'Paused: saved application + Sales recovery' },
   { reason: 'CR_SUSPENDED', where: 'After CR retrieval', source: 'Government CR status', route: 'Paused: saved application + Sales recovery' },
   { reason: 'CR_RESTRICTED', where: 'After CR retrieval', source: 'Government CR status (provisional)', route: 'Paused: saved application + Sales recovery' }

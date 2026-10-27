@@ -2,7 +2,7 @@
 /**
  * Build the Madfu Proposed PDFs from the print routes (same source as the app):
  *   Madfu_Merchant_Onboarding_Wireframes.pdf     /print/wireframes      1600 × 1300 px pages
- *   Madfu_Proposed_Simple_Master_Board.pdf       /print/board-simple    2200 × 1150 px
+ *   Madfu_Proposed_Simple_Master_Board.pdf       /print/board-simple    5560 × 3010 px (visual screen flow)
  *   Madfu_Proposed_Detailed_Master_Board.pdf     /print/board-detailed  2000 × 1250 px pages
  *
  *   npm run pdf        (builds with base "/", serves dist, prints each route to public/)
@@ -17,7 +17,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const PORT = 4797;
 const TARGETS = [
   { route: '/print/wireframes', file: 'Madfu_Merchant_Onboarding_Wireframes.pdf', w: 1600, h: 1300 },
-  { route: '/print/board-simple', file: 'Madfu_Proposed_Simple_Master_Board.pdf', w: 2200, h: 1150 },
+  { route: '/print/board-simple', file: 'Madfu_Proposed_Simple_Master_Board.pdf', w: 5560, h: 3010 },
   { route: '/print/board-detailed', file: 'Madfu_Proposed_Detailed_Master_Board.pdf', w: 2000, h: 1250 }
 ];
 

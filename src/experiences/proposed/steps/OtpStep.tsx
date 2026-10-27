@@ -11,7 +11,8 @@ const EXISTING_TITLE = {
   incomplete: 'An application is already in progress for this business.',
   submitted: 'An application has already been submitted for this business.',
   live: 'This business already has a Madfu account.',
-  paused: 'An application is already saved for this business.'
+  paused: 'An application is already saved for this business.',
+  not_eligible: 'We already have your details for this business.'
 } as const;
 
 /**

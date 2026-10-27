@@ -2,9 +2,10 @@
  * The Madfu Proposed product-rule document, rendered from the same model the prototype and boards use.
  * Written to docs/MADFU_PROPOSED_JOURNEY.md by `npm run docs`; a test fails if the file is stale.
  */
-import { DETAILED_BOARD, REUSE_NOTE, SIMPLE_BOARD } from './boards';
+import { DETAILED_BOARD, REUSE_NOTE } from './boards';
 import { LIMITS, STAGES } from './config';
 import { ASSUMPTIONS, CONFIRMED_DECISIONS, DECISION_TABLES, OPEN_ITEMS, OTHER_OPEN_POINTS, type Table } from './decisions';
+import { BOARD_ARROWS, BOARD_BOXES, BOARD_SUBTITLE } from './masterBoard';
 import { PAGE_SCENARIOS, pageScenarios } from './pageScenarios';
 import { JOURNEY_PRESETS, SCENARIOS, SCENARIO_GROUPS, scenarioById } from './scenarios';
 import type { StepId } from './types';
@@ -45,7 +46,11 @@ const REMOVED = [
   '3 / 4 / 6 / 9 / 12-month plan selection in the Commercial Offer and plans in the Contract.',
   'Unrestricted Review editing; Cancel that did not restore selections.',
   'Unlimited OTP resends resetting the attempts.',
-  'Contract Decline action and the "contract declined" outcome (the Contract page has Back to Review and Agree & Submit only).'
+  'Contract Decline action and the "contract declined" outcome (the Contract page has Back to Review and Agree & Submit only).',
+  'Sales-lead routing at initial eligibility: registered business above SAR 20M → Sales, below SAR 100K → lead, and the Sales / lead thank-you pages (every revenue band now self-onboards when otherwise eligible).',
+  'Freelancer without certificate entering National ID + mobile + OTP as a lead (now Not Eligible directly on Page 1).',
+  'Blacklisted / unsupported category stopping on Page 1 with no contact captured (now Identify + OTP, details saved, then Not Eligible).',
+  '"Blocked" / "Sales lead" outcome terminology (now "Not Eligible"; internal reason codes kept).'
 ];
 
 /** Representative catalogue states used to list each screen's Page Scenarios in the doc. */
@@ -56,7 +61,7 @@ const PAGE_DOC_STATES: Array<[StepId, string]> = [
 
 export function renderJourneyDoc(): string {
   const out: string[] = [];
-  out.push('# Madfu Proposed — merchant self-onboarding (v4: identifier before OTP, lifecycle routing)', '');
+  out.push('# Madfu Proposed — merchant self-onboarding (v5: Eligible / Not Eligible, identifier before OTP, lifecycle routing)', '');
   out.push('> Generated from the Merchant Onboarding Lab model (`src/experiences/proposed/model/`) by `npm run docs`. Do not edit by hand: change the model and regenerate. A test fails when this file is out of date.', '');
   out.push('**Status:** Proposed / Product Design. Synthetic data; simulated integrations. Not production behaviour.', '');
   out.push('**Source of truth:** the agreed product decisions of 2026-10-27. They supersede the KYB-first v3 journey (2026-10-23) and the 2026-10-15 wireframe specification where they differ. Madfu Current, Tamara and Tabby are unchanged.', '');
@@ -64,11 +69,13 @@ export function renderJourneyDoc(): string {
   out.push(`**Cost rule:** ${REUSE_NOTE}`, '');
 
   out.push('## Journey', '');
-  out.push('1. Page 1 — Know Your Business: applicant type, category, subcategory, annual revenue, sales channel. Preliminary eligibility (internal).');
-  out.push('2. Page 2 — identifier (CR / National ID) + mobile + one prerequisite question (self-onboarding only).');
-  out.push('3. Internal existence check (no provider): new · incomplete · submitted · live · paused.');
+  out.push('1. Page 1 — Know Your Business: applicant type, category, subcategory, annual revenue, sales channel. Preliminary eligibility (internal): only **Eligible** or **Not Eligible**. Revenue never routes (risk input only).');
+  out.push('   - Freelancer without a certificate → Not Eligible immediately (no Identify, no National ID, no OTP).');
+  out.push('   - Unsupported category → continues to Identify + OTP so a verified contact is kept, then Not Eligible (no paid check).');
+  out.push('2. Page 2 — Registered Business or Freelancer with certificate only: identifier (CR / National ID) + mobile + one prerequisite question (eligible applicants only).');
+  out.push('3. Internal existence check (no provider): new · incomplete · submitted · live · paused · not eligible.');
   out.push('4. OTP — new: to the entered mobile (contact_mobile_verified); existing: to the REGISTERED mobile, last three digits shown.');
-  out.push('5. Routing by lifecycle status, eligibility and declaration: Sales lead · blocked · new CR · new Freelancer · resume · Application Progress · login.');
+  out.push('5. Routing by lifecycle status, eligibility and declaration: Not Eligible (details received) · new CR · new Freelancer · resume · Application Progress · login. There is no Sales-lead route.');
   out.push('6. Self-onboarding: Business Verification (CR data + owners / managers, or certificate pre-check) → mobile ↔ National ID → Nafath → (Freelancer: certificate) → Business Details → Commercial Offer → Review → Contract → Submit → Application Progress.', '');
 
   out.push('## Stages', '');
@@ -80,9 +87,9 @@ export function renderJourneyDoc(): string {
   for (const d of CONFIRMED_DECISIONS) out.push(`- ${d}`);
   out.push('');
 
-  out.push('## Master Board', '', SIMPLE_BOARD.caption, '');
-  for (const n of SIMPLE_BOARD.nodes.filter((x) => x.kind !== 'note')) out.push(`- **${n.label}** _(${n.kind})_${n.detail ? ` — ${n.detail}` : ''}`);
-  out.push('');
+  out.push('## Master Board', '', `${BOARD_SUBTITLE}. Visual screen flow (real screens), source: \`model/masterBoard.ts\`; PDF: \`public/Madfu_Proposed_Simple_Master_Board.pdf\`.`, '');
+  for (const b of BOARD_BOXES) out.push(`- **${b.title}**${b.caption ? ` — ${b.caption}` : ''}`);
+  out.push('', `Arrow labels: ${[...new Set(BOARD_ARROWS.flatMap((a) => (a.pills ?? []).map((p) => (p.kind === 'check' ? `✓ ${p.text}` : p.text))))].join(' · ')}.`, '');
 
   out.push('## Detailed Logic Board (one panel per area)', '');
   for (const m of DETAILED_BOARD) {

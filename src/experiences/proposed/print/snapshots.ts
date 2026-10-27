@@ -2,11 +2,11 @@
  * Screen snapshots for the wireframes PDF. Each state is produced by running the SAME transitions the
  * prototype runs on a scenario, then rendered with the same step components.
  */
-import { DEMO, DEMO_SMS_CODE } from '../model/mock';
+import { DEMO_SMS_CODE } from '../model/mock';
 import { scenarioById } from '../model/scenarios';
 import {
   agreeAndSubmit, continueFromReview, finishIbanCheck, initialState, loadCertificates, nafathResult, runBusinessVerification,
-  runCertificatePrecheck, sendToNafath, setIban, setIdentity, setPresence, startEdit, startIbanCheck, startMobileChange, submitIdentify, submitKyb, verifyOtp
+  runCertificatePrecheck, sendToNafath, setIban, setPresence, startEdit, startIbanCheck, startMobileChange, submitIdentify, submitKyb, verifyOtp
 } from '../model/state';
 import type { ProposedState } from '../model/types';
 import { URL_ERROR_COPY } from '../model/urls';
@@ -25,24 +25,23 @@ export interface Snapshot {
 const sc = (id: string) => scenarioById(id)!.build();
 const otp = (s: ProposedState) => verifyOtp(s, DEMO_SMS_CODE);
 const sent = (id: string) => submitIdentify(sc(id));
-const salesAtIdentify = () => setIdentity(submitKyb(sc('kyb-cr-sales')), { identifier: DEMO.cr, mobile: DEMO.mobile });
 
 export const SNAPSHOTS: Snapshot[] = [
   // Page 1
   { id: 'kyb-empty', section: 'kyb', title: 'Know Your Business', caption: 'Five questions. No CR, National ID, mobile, OTP or URL. Eligibility is checked before anything is verified.', state: () => initialState() },
   { id: 'kyb-filled', section: 'kyb', title: 'Know Your Business: filled in', caption: 'The channel is captured now; store links are asked later in Business Details.', state: () => sc('kyb-cr-both') },
-  { id: 'out-blocked', section: 'kyb', title: 'Blocked on Page 1', caption: 'Personalised reason of the rule that applied; no OTP, no external cost.', state: () => submitKyb(sc('kyb-fl-cr-required')) },
+  { id: 'out-no-cert', section: 'kyb', title: 'Not Eligible on Page 1: Freelancer without certificate', caption: 'Shown directly after Page 1: no Identify, no National ID, no OTP, no cost.', state: () => submitKyb(sc('kyb-fl-no-cert')) },
 
   // Page 2 + routing
   { id: 'identify', section: 'identify', title: 'Identifier + mobile + prerequisite', caption: 'CR + mobile + "Are you an owner or manager registered on this CR?". An internal existence check runs on Send code.', state: () => sc('id-new-cr') },
   { id: 'identify-fl', section: 'identify', title: 'Freelancer: identifier + mobile + IBAN question', caption: '"Is your IBAN linked to your Freelancer Certificate?" — a cost-saving declaration; the linkage is verified later.', state: () => sc('id-new-fl') },
-  { id: 'identify-sales', section: 'identify', title: 'Sales route: identifier + mobile only', caption: 'Above SAR 20M: no prerequisite question; after the code, the Sales thank-you.', state: salesAtIdentify },
+  { id: 'identify-unsupported', section: 'identify', title: 'Unsupported category: identifier + mobile only', caption: 'No "eligible" message and no prerequisite question; the code verifies the contact so Madfu can reach them later.', state: () => sc('id-unsupported-cr') },
   { id: 'otp-new', section: 'identify', title: 'OTP to the entered mobile', caption: 'New identifier. After the code the application is created (contact_mobile_verified).', state: () => sent('id-new-cr') },
   { id: 'otp-existing', section: 'identify', title: 'Application already in progress', caption: 'Code sent to the REGISTERED mobile ending •••123 — not to the newly entered number. Nothing about the application is shown before the code.', state: () => sent('id-incomplete') },
   { id: 'status', section: 'identify', title: 'Submitted application → Application Progress', caption: 'After the registered-mobile code. Review, Contract and re-submission are never reopened.', state: () => otp(sent('id-submitted')) },
   { id: 'login', section: 'identify', title: 'Existing merchant → login', caption: 'Account-mobile code, then the merchant login. No application is created.', state: () => otp(sent('id-live')) },
-  { id: 'out-sales', section: 'identify', title: 'Outcome: Sales lead', caption: 'Lead persisted with the verified contact. No CR, Nafath, banking or contract.', state: () => otp(submitIdentify(salesAtIdentify())) },
-  { id: 'out-not-owner', section: 'identify', title: 'Outcome: not an owner or manager', caption: 'Personalised reason; delegated onboarding is out of V1. No paid check was made.', state: () => otp(sent('id-cr-not-owner')) },
+  { id: 'out-not-eligible', section: 'identify', title: 'Not Eligible: details received', caption: 'After the code: verified contact saved. No CR, Nafath, certificate, banking, offer or contract.', state: () => otp(sent('id-unsupported-cr')) },
+  { id: 'out-not-owner', section: 'identify', title: 'Not Eligible: not an owner or manager', caption: 'Personalised reason; delegated onboarding is out of V1. No paid check was made.', state: () => otp(sent('id-cr-not-owner')) },
 
   // Registered business
   { id: 'cr-persons', section: 'cr', title: 'Business verification: owner / manager', caption: 'CR data and owners / managers retrieved in the backend; no separate CR page. Delegates and companies are not offered.', state: () => runBusinessVerification(sc('cr-business')) },
@@ -55,7 +54,7 @@ export const SNAPSHOTS: Snapshot[] = [
   // Freelancer
   { id: 'fl-nafath', section: 'fl', title: 'Freelancer: Nafath', caption: 'The certificate pre-check already ran in the backend; the applicant sees Nafath first.', state: () => runCertificatePrecheck(sc('fl-nafath')) },
   { id: 'fl-certs', section: 'fl', title: 'Freelancer certificates', caption: 'Shown after Nafath; retrieved, never uploaded. Expired / already linked cannot be selected.', state: () => loadCertificates(sc('fl-certs-multi')) },
-  { id: 'out-fl-no-cert', section: 'fl', title: 'Outcome: no certificate found', caption: 'Stopped before Nafath: certificate-required lead (no Nafath cost).', state: () => runCertificatePrecheck(sc('fl-no-cert')) },
+  { id: 'out-fl-no-cert', section: 'fl', title: 'Not Eligible: no certificate found', caption: 'Stopped before Nafath (no Nafath cost).', state: () => runCertificatePrecheck(sc('fl-no-cert')) },
 
   // Business details
   { id: 'details-cr', section: 'details', title: 'Business Details: registered business', caption: 'Online store and Google Maps branch link (channel Both). No IBAN, VAT or branch count.', state: () => sc('biz-cr-both') },

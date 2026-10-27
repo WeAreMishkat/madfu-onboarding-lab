@@ -1,24 +1,28 @@
 /**
  * Stage 1 eligibility engine (preliminary). Evaluates applicant type + DECLARED category / subcategory
- * + revenue + sales channel against an ordered, versioned rule list. Results: SELF_ONBOARDING,
- * SALES_LEAD, BLOCKED. Categories are allowed or blocked; there is no manual-review category route.
- * Once government activity is retrieved, the same rules are re-run on the VERIFIED category.
+ * + sales channel against an ordered, versioned rule list. Exactly two results: ELIGIBLE and
+ * NOT_ELIGIBLE. Revenue is still collected but never routes (no Sales-lead route): it is a risk input.
+ * Once government activity is retrieved, the same category rules are re-run on the VERIFIED category.
+ *
+ * When Not Eligible is shown is part of the rule: a Freelancer without a certificate sees it on Page 1
+ * (no identifier, mobile or OTP); an unsupported category continues through Identify + OTP first, so
+ * Madfu keeps a verified contact, and then sees it — with no paid verification after the OTP.
  *
  * FIXTURE CATALOGUE. The production Eligibility Matrix is a PRODUCT TASK and is not defined yet: the
  * categories, rule types and example restrictions below are synthetic and only demonstrate behaviour.
  * In particular "Gold & jewellery" is an example, not the production policy.
  */
-import { REVENUE_RULE, isFreelancer } from './config';
-import type { ApplicantKind, Channel, Eligibility, EligibilityResult, Kyb, ReasonCode, Revenue } from './types';
+import { isFreelancer } from './config';
+import type { ApplicantKind, Channel, Eligibility, EligibilityResult, Kyb, NotEligibleAt, ReasonCode, Revenue } from './types';
 
-export const ELIGIBILITY_RULESET = 'KYB-RULES-v4-demo (2026-10-27)';
+export const ELIGIBILITY_RULESET = 'KYB-RULES-v5-demo (2026-10-27)';
 
 /** Rule types a subcategory can carry, per applicant type. */
 export type CategoryRule = 'ALLOWED' | 'BLOCKED' | 'REGULATORY_PROHIBITED' | 'CR_REQUIRED' | 'FL_ONLINE_ONLY';
 
 export const CATEGORY_RULE_LABEL: Record<CategoryRule, string> = {
   ALLOWED: 'Allowed',
-  BLOCKED: 'Blocked / blacklisted',
+  BLOCKED: 'Not supported (blacklisted)',
   REGULATORY_PROHIBITED: 'Regulatory prohibition',
   CR_REQUIRED: 'Requires a CR',
   FL_ONLINE_ONLY: 'Freelancer online only'
@@ -56,7 +60,7 @@ export const CATEGORIES: CategoryGroup[] = [
   },
   {
     id: 'fixture', label: 'Fixture examples (demo rules)', subs: [
-      { id: 'fixture-blocked', label: 'Example: blacklisted category', rules: r('BLOCKED') }
+      { id: 'fixture-blocked', label: 'Example: unsupported (blacklisted) category', rules: r('BLOCKED') }
     ]
   }
 ];
@@ -73,6 +77,7 @@ export const subLabel = (subId: string) => {
   return f ? `${f.group.label} › ${f.sub.label}` : '';
 };
 
+/** Revenue is part of the input (it is collected and stored) but no rule reads it. */
 export interface EligibilityInput { kind: ApplicantKind; sub: string; revenue: Revenue; channel: Channel }
 
 export interface EligibilityRule {
@@ -81,20 +86,20 @@ export interface EligibilityRule {
   description: string;
   when: (i: EligibilityInput, rule: CategoryRule) => boolean;
   result: EligibilityResult;
+  /** When the Not Eligible outcome is shown (null for ELIGIBLE). */
+  notEligibleAt: NotEligibleAt | null;
   reason: ReasonCode;
   kind: 'regulatory' | 'business' | 'internal';
 }
 
 /** Ordered: the first matching rule wins. Internal: no external call is made in Stage 1. */
 export const ELIGIBILITY_RULES: EligibilityRule[] = [
-  { id: 'KYB-R01', description: 'Category blocked / blacklisted', when: (_, c) => c === 'BLOCKED', result: 'BLOCKED', reason: 'CATEGORY_NOT_SUPPORTED', kind: 'business' },
-  { id: 'KYB-R02', description: 'Regulatory prohibition for this applicant type', when: (_, c) => c === 'REGULATORY_PROHIBITED', result: 'BLOCKED', reason: 'REGULATORY_RESTRICTION', kind: 'regulatory' },
-  { id: 'KYB-R03', description: 'Activity requires a CR and the applicant is a Freelancer', when: (i, c) => c === 'CR_REQUIRED' && isFreelancer(i.kind), result: 'BLOCKED', reason: 'ACTIVITY_REQUIRES_CR', kind: 'regulatory' },
-  { id: 'KYB-R04', description: 'Freelancer category allowed online only, applicant sells offline', when: (i, c) => c === 'FL_ONLINE_ONLY' && isFreelancer(i.kind) && i.channel !== 'online', result: 'BLOCKED', reason: 'CHANNEL_NOT_SUPPORTED', kind: 'business' },
-  { id: 'KYB-R05', description: 'Freelancer without a Freelancer Certificate: kept as a lead', when: (i) => i.kind === 'FL_NO_CERT', result: 'SALES_LEAD', reason: 'FL_CERT_REQUIRED', kind: 'business' },
-  { id: 'KYB-R06', description: `Registered business below SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')}: lead (Business Team decides under the proposed policy)`, when: (i) => i.kind === 'CR' && i.revenue === 'BELOW_100K', result: 'SALES_LEAD', reason: 'REVENUE_BELOW_BAND', kind: 'business' },
-  { id: 'KYB-R07', description: `Registered business above SAR ${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')}: Sales lead`, when: (i) => i.kind === 'CR' && i.revenue === 'ABOVE_20M', result: 'SALES_LEAD', reason: 'REVENUE_ABOVE_BAND', kind: 'business' },
-  { id: 'KYB-R08', description: 'Everything else: self-onboarding', when: () => true, result: 'SELF_ONBOARDING', reason: 'OK', kind: 'internal' }
+  { id: 'KYB-R01', description: 'Freelancer without a Freelancer Certificate', when: (i) => i.kind === 'FL_NO_CERT', result: 'NOT_ELIGIBLE', notEligibleAt: 'KYB', reason: 'FL_CERT_REQUIRED', kind: 'business' },
+  { id: 'KYB-R02', description: 'Category not supported (blacklisted)', when: (_, c) => c === 'BLOCKED', result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'CATEGORY_NOT_SUPPORTED', kind: 'business' },
+  { id: 'KYB-R03', description: 'Regulatory prohibition for this applicant type', when: (_, c) => c === 'REGULATORY_PROHIBITED', result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'REGULATORY_RESTRICTION', kind: 'regulatory' },
+  { id: 'KYB-R04', description: 'Activity requires a CR and the applicant is a Freelancer', when: (i, c) => c === 'CR_REQUIRED' && isFreelancer(i.kind), result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'ACTIVITY_REQUIRES_CR', kind: 'regulatory' },
+  { id: 'KYB-R05', description: 'Freelancer category allowed online only, applicant sells offline', when: (i, c) => c === 'FL_ONLINE_ONLY' && isFreelancer(i.kind) && i.channel !== 'online', result: 'NOT_ELIGIBLE', notEligibleAt: 'AFTER_OTP', reason: 'CHANNEL_NOT_SUPPORTED', kind: 'business' },
+  { id: 'KYB-R06', description: 'Everything else, any revenue band: eligible for self-onboarding', when: () => true, result: 'ELIGIBLE', notEligibleAt: null, reason: 'OK', kind: 'internal' }
 ];
 
 export const ruleFor = (kind: ApplicantKind, subId: string): CategoryRule => {
@@ -106,7 +111,7 @@ export const ruleFor = (kind: ApplicantKind, subId: string): CategoryRule => {
 export function evaluateEligibility(i: EligibilityInput, at = new Date().toISOString()): Eligibility {
   const cat = ruleFor(i.kind, i.sub);
   const rule = ELIGIBILITY_RULES.find((x) => x.when(i, cat))!;
-  return { result: rule.result, reason: rule.reason, ruleId: rule.id, ruleset: ELIGIBILITY_RULESET, at };
+  return { result: rule.result, notEligibleAt: rule.notEligibleAt, reason: rule.reason, ruleId: rule.id, ruleset: ELIGIBILITY_RULESET, at };
 }
 
 export const kybComplete = (k: Kyb): k is Kyb & { kind: ApplicantKind; revenue: Revenue; channel: Channel } =>

@@ -1,4 +1,4 @@
-# Madfu Proposed — merchant self-onboarding (v4: identifier before OTP, lifecycle routing)
+# Madfu Proposed — merchant self-onboarding (v5: Eligible / Not Eligible, identifier before OTP, lifecycle routing)
 
 > Generated from the Merchant Onboarding Lab model (`src/experiences/proposed/model/`) by `npm run docs`. Do not edit by hand: change the model and regenerate. A test fails when this file is out of date.
 
@@ -12,11 +12,13 @@
 
 ## Journey
 
-1. Page 1 — Know Your Business: applicant type, category, subcategory, annual revenue, sales channel. Preliminary eligibility (internal).
-2. Page 2 — identifier (CR / National ID) + mobile + one prerequisite question (self-onboarding only).
-3. Internal existence check (no provider): new · incomplete · submitted · live · paused.
+1. Page 1 — Know Your Business: applicant type, category, subcategory, annual revenue, sales channel. Preliminary eligibility (internal): only **Eligible** or **Not Eligible**. Revenue never routes (risk input only).
+   - Freelancer without a certificate → Not Eligible immediately (no Identify, no National ID, no OTP).
+   - Unsupported category → continues to Identify + OTP so a verified contact is kept, then Not Eligible (no paid check).
+2. Page 2 — Registered Business or Freelancer with certificate only: identifier (CR / National ID) + mobile + one prerequisite question (eligible applicants only).
+3. Internal existence check (no provider): new · incomplete · submitted · live · paused · not eligible.
 4. OTP — new: to the entered mobile (contact_mobile_verified); existing: to the REGISTERED mobile, last three digits shown.
-5. Routing by lifecycle status, eligibility and declaration: Sales lead · blocked · new CR · new Freelancer · resume · Application Progress · login.
+5. Routing by lifecycle status, eligibility and declaration: Not Eligible (details received) · new CR · new Freelancer · resume · Application Progress · login. There is no Sales-lead route.
 6. Self-onboarding: Business Verification (CR data + owners / managers, or certificate pre-check) → mobile ↔ National ID → Nafath → (Freelancer: certificate) → Business Details → Commercial Offer → Review → Contract → Submit → Application Progress.
 
 ## Stages
@@ -35,7 +37,11 @@
 ## Confirmed product decisions
 
 - Know Your Business (Page 1) asks only applicant type, category, subcategory, annual revenue and sales channel — no website or Google Maps link.
-- Identifier + mobile are Page 2, with one prerequisite question for self-onboarding.
+- Initial eligibility has only two outcomes: Eligible and Not Eligible. There is no Sales-lead, Blocked or manual-review route at initial eligibility.
+- Annual revenue is still collected on Page 1 but never routes: every band (below SAR 100,000, SAR 100,000–20,000,000, above SAR 20,000,000) self-onboards when otherwise eligible. Revenue is a risk input only.
+- A Freelancer without a Freelancer Certificate sees Not Eligible directly on Page 1: no Identify page, no National ID, no OTP.
+- An unsupported (blacklisted) category or activity continues through Identify + OTP so a verified contact is kept; after the OTP the applicant sees Not Eligible ("We’ve received your details") — no CR, Nafath, certificate, banking, offer or contract, and no paid verification after the OTP.
+- Only Registered Businesses and Freelancers with a certificate reach Identify. Identifier + mobile are Page 2, with one prerequisite question for eligible applicants.
 - An internal existence check runs before any OTP; it calls no provider.
 - Existing applications and merchant accounts are opened only by an OTP to the REGISTERED mobile (last three digits shown); the newly entered mobile is never used for them.
 - No automatic account / application takeover, no access-request and no replacement-mobile workflow in V1.
@@ -44,8 +50,8 @@
 - Freelancers declare "Is your IBAN linked to your Freelancer Certificate?"; No stops self-onboarding before any paid check. The linkage is still verified technically later.
 - The Freelancer Certificate existence check runs before Nafath when provider / compliance permits (rule flag); the applicant still sees Nafath → certificate.
 - Mobile ↔ National ID ownership is checked before every Nafath request; on a mismatch the mobile can be corrected with a new OTP, without restarting.
-- Sales leads stop after OTP: no CR, Nafath, banking or contract; the lead is persisted.
-- Blocked outcomes show a personalised reason per rule; internal scoring is never exposed.
+- "Not Eligible" is the only merchant-facing term (never Blocked, Blacklisted or Rejected); each Not Eligible page shows a personalised reason per rule; reason codes and internal scoring are never exposed.
+- A returning applicant with a saved Not Eligible record gets the code on the registered mobile, then the Not Eligible confirmation (saved details).
 - After retrieval, the government CR activity (or certificate activity) is the source of truth for the category; the declared category cannot be edited to bypass it.
 - Commercial pricing uses the verified, mapped category.
 - Multiple CR activities are supported in the data model; many activities can map to one Madfu subcategory.
@@ -67,59 +73,65 @@
 
 ## Master Board
 
-Madfu Proposed: Page 1 eligibility → identifier + mobile → internal existence check → OTP → routing → self-onboarding.
+Master Board — the journey, screen by screen. Visual screen flow (real screens), source: `model/masterBoard.ts`; PDF: `public/Madfu_Proposed_Simple_Master_Board.pdf`.
 
-- **1 · Know Your Business** _(screen)_ — Type · category · revenue · channel (no URLs)
-- **Blocked on Page 1** _(outcome)_ — Personalised reason · no OTP, no cost
-- **Identifier + mobile** _(screen)_ — CR / National ID · mobile · owner-manager or IBAN-linked question
-- **Existing check** _(backend)_ — Internal database · no provider call
-- **OTP** _(screen)_ — New: entered mobile · existing: REGISTERED mobile (•••123)
-- **Routing** _(decision)_ — Lifecycle status + eligibility + declaration
-- **Sales lead** _(outcome)_ — Thank you. Our Sales team will contact you.
-- **New CR · 3 · Business Verification** _(external)_ — CR data (activities, age → risk) · owners / managers · no CR page
-- **New Freelancer** _(backend)_ — Certificate pre-check — backend only, before Nafath
-- **Resume** _(cached)_ — First unfinished stage · checks reused
-- **Submitted → Application Progress** _(screen)_ — Never Review / Contract again
-- **Live merchant → login** _(screen)_ — No new application
-- **Blocked** _(outcome)_ — Not owner / manager · IBAN not linked · personalised
-- **CR expired / suspended** _(manual)_ — Saved → Sales recovery · no Refresh, no more paid calls
-- **Mobile ↔ National ID → Nafath** _(external)_ — Mismatch: another mobile + OTP · then Nafath (FL: then certificate)
-- **4 · Business Details** _(screen)_ — Website / Google Maps by channel · FL IBAN · no CR IBAN, VAT, branches
-- **5 · Commercial Offer** _(screen)_ — Standard offer → Continue · no plan selection · rate review optional
-- **6 · Review** _(screen)_ — Verified sections locked · transactional edit
-- **7 · Contract** _(screen)_ — Agree & Submit
-- **8 · Submitted** _(outcome)_ — Return later → Application Progress
+- **Not Eligible** — Freelancer without a certificate · no OTP
+- **Know Your Business** — Five questions · eligibility check
+- **Identify** — CR or National ID + mobile
+- **OTP** — SMS code to verify the mobile
+- **Not Eligible · Details Received** — Unsupported category · contact saved
+- **Resume Application** — Opens where they left off
+- **Application Progress** — Submitted application · status only
+- **Login** — Already a Madfu merchant
+- **Registered Business** — Self-Onboarding
+- **Owner / Manager** — CR verified · choose who applies
+- **Nafath** — Identity verified in the Nafath app
+- **Business Details** — Website / Google Maps link
+- **Offer** — Standard commission → Continue
+- **Review** — Verified details locked
+- **Contract** — Agree & Submit
+- **Submitted** — Then: Application Progress
+- **Freelancer** — Self-Onboarding
+- **Nafath** — Identity verified in the Nafath app
+- **Certificate** — Choose the Freelancer Certificate
+- **Business Details + IBAN** — Website · IBAN linked to the certificate
+- **Offer** — Standard commission → Continue
+- **Review** — Verified details locked
+- **Contract** — Agree & Submit
+- **Submitted** — Then: Application Progress
+
+Arrow labels: Freelancer without Certificate · Registered Business / Freelancer with Certificate · Not Eligible category · Resume · Submitted · Live · New · ✓ CR verification · ✓ Certificate check · ✓ Mobile match.
 
 ## Detailed Logic Board (one panel per area)
 
-### A · Know Your Business (Page 1): preliminary eligibility
+### A · Know Your Business (Page 1): Eligible or Not Eligible
 
-No identity, mobile, OTP or URL. The declared category is preliminary; it is replaced by the government activity once retrieved.
+No identity, mobile, OTP or URL. Only two outcomes. Revenue is collected but never routes (risk input only). The declared category is preliminary; it is replaced by the government activity once retrieved.
 
-- **Blocked** _(outcome)_ — Blacklisted · regulatory · needs a CR · channel — personalised reason
+- **Not Eligible (Page 1)** _(outcome)_ — Freelancer without certificate · no Identify, no National ID, no OTP
 - **PRODUCT TASK: Eligibility Matrix** _(open)_ — Production catalogue not defined (fixture)
 - **Know Your Business** _(screen)_ — Applicant type · Category · Subcategory · Annual revenue · Sales channel
 - **Qualification record (KYB-…)** _(backend)_ — Temporary until linked after OTP
-- **Eligibility engine** _(decision)_ — 8 ordered rules · allowed / blocked
+- **Eligibility engine** _(decision)_ — 6 ordered rules · Eligible / Not Eligible
 
 ### B · Identifier + mobile, existence check, OTP and routing
 
-An internal lookup decides where the code goes. Existing records are opened only by the REGISTERED mobile; the entered mobile is never used for them. No takeover workflow.
+Only a Registered Business or a Freelancer with a certificate reaches Page 2. An internal lookup decides where the code goes. Existing records open only with the REGISTERED mobile. There is no Sales-lead route.
 
 - **Rate limit / bot challenge** _(backend)_ — 5 submissions / session
-- **Sales lead** _(outcome)_ — Lead persisted · no further data
-- **Identifier + mobile** _(screen)_ — CR or National ID · mobile · "owner / manager?" or "IBAN linked?"
-- **Existence check** _(backend)_ — Internal database: new · incomplete · submitted · live · paused
+- **Not Eligible — details received** _(outcome)_ — Unsupported category · verified contact saved · no paid check
+- **Identifier + mobile** _(screen)_ — CR or National ID · mobile · "owner / manager?" or "IBAN linked?" (eligible only)
+- **Existence check** _(backend)_ — Internal database: new · incomplete · submitted · live · paused · not eligible
 - **Existing record?** _(decision)_
 - **OTP → entered mobile** _(screen)_ — contact_mobile_verified · 3 attempts, 3 resends
-- **Create application + route** _(decision)_ — Eligibility + declaration
+- **Create record + route** _(decision)_ — Eligibility + declaration
+- **Not Eligible confirmation** _(outcome)_ — Saved Not Eligible record (registered mobile)
 - **OTP → REGISTERED mobile** _(screen)_ — "Code sent to the registered mobile ending •••123" · also the Continue link
 - **Code not completed** _(outcome)_ — No access · nothing exposed · no new application
-- **Blocked** _(outcome)_ — Not owner / manager · IBAN not linked (personalised)
+- **Not Eligible** _(outcome)_ — Prerequisite = No: not owner / manager · IBAN not linked
 - **DRAFT → resume** _(cached)_ — First unfinished stage · checks reused
 - **Lifecycle status** _(decision)_ — Status + outcome, then completion
 - **Live → merchant login** _(screen)_
-- **Certificate required (lead)** _(outcome)_ — Freelancer without certificate
 - **PAUSED_CR** _(manual)_ — Sales follow-up message
 - **Submitted → Application Progress** _(screen)_
 
@@ -136,20 +148,20 @@ CR data and owners / managers are retrieved in the backend once and reused. The 
 - **Owners / managers** _(external)_ — Individuals only; delegates out of V1
 - **Select owner / manager** _(screen)_ — Masked names · role · single choice
 - **Provider unavailable** _(screen)_ — Retry (2/session) · Save & exit · reset on resume
-- **Blocked** _(outcome)_ — Regulated activity
-- **Blocked** _(outcome)_ — No owner / manager: declaration not confirmed
+- **Not Eligible** _(outcome)_ — Regulated activity
+- **Not Eligible** _(outcome)_ — No owner / manager: declaration not confirmed
 - **PRODUCT TASK: activity mapping** _(open)_
 - **Multi-activity reconciliation** _(open)_
-- **Hard-block inventory** _(open)_
+- **Not Eligible inventory** _(open)_
 - **Risk weights / thresholds** _(open)_
 
 ### D · Business Verification: Freelancer
 
 Cost order (rule flag ON): the backend checks that a certificate exists BEFORE Nafath, silently. The applicant still sees Nafath → certificate; no certificate detail is shown before Nafath.
 
-- **Certificate required** _(outcome)_ — No certificate: lead, NO Nafath call
+- **Not Eligible** _(outcome)_ — No certificate found: NO Nafath call
 - **Pre-check result reused** _(cached)_ — Details shown now, no new call
-- **Blocked** _(outcome)_ — Certificate activity requires a CR
+- **Not Eligible** _(outcome)_ — Certificate activity requires a CR
 - **Certificate pre-check** _(external)_ — Backend only · by National ID
 - **Select certificate** _(screen)_ — Expired / already linked cannot be selected
 - **Certificate activity → verified category** _(decision)_
@@ -256,22 +268,23 @@ Ordinary resume costs one OTP to the registered mobile. Positive results are reu
 | 7 | Contract | contract |
 | 8 | Submit / Application Status | outcome · status · login |
 
-### Page 2 → existence check → OTP → routing
+### Page 1 → Page 2 → existence check → OTP → routing
 
-| Existence (internal) | OTP sent to | After the code |
+| Situation | OTP sent to | After the code |
 | --- | --- | --- |
-| New identifier, Page 1 = Sales lead | Entered mobile | Lead persisted → "Thank you. Our Sales team will contact you." (no further data) |
-| New identifier, Freelancer without certificate | Entered mobile | Lead persisted → certificate-required outcome |
-| New identifier, prerequisite = No | Entered mobile | Blocked with a personalised reason (owner / manager, or IBAN linkage) |
-| New identifier, registered business | Entered mobile | Application created (DRAFT) → Business verification |
-| New identifier, Freelancer with certificate | Entered mobile | Application created (DRAFT) → certificate pre-check → Nafath |
+| Freelancer without certificate (Page 1) | — (no Identify, no OTP) | Not Eligible immediately, personalised reason |
+| New identifier, unsupported category / activity | Entered mobile | Details saved (verified contact) → Not Eligible "We’ve received your details"; no paid check |
+| New identifier, eligible, prerequisite = No | Entered mobile | Not Eligible with a personalised reason (owner / manager, or IBAN linkage) |
+| New identifier, eligible registered business (any revenue band) | Entered mobile | Application created (DRAFT) → Business verification |
+| New identifier, eligible Freelancer with certificate (any revenue band) | Entered mobile | Application created (DRAFT) → certificate pre-check → Nafath |
 | Incomplete application (DRAFT) | Registered application mobile (•••••••123) | Resume at the first unfinished stage; valid checks reused |
 | Submitted, not live | Registered application mobile | Application Progress (status only) |
+| Saved Not Eligible record | Registered mobile | Not Eligible confirmation (saved details) |
 | Paused (CR expired / suspended) | Registered application mobile | Saved; Sales will help you continue |
 | Live merchant | Registered account mobile | Merchant login; no application created |
 | Code not completed | — | No access; nothing exposed; no new application |
 
-_Throttled after 5 Page-2 submissions per session (simulated rate limit / bot challenge)._
+_There is no Sales-lead route. Throttled after 5 Page-2 submissions per session (simulated rate limit / bot challenge)._
 
 ### Application lifecycle → where the application opens
 
@@ -280,8 +293,7 @@ _Throttled after 5 Page-2 submissions per session (simulated rate limit / bot ch
 | QUALIFICATION | Qualification (Page 1 / Page 2) — no application yet | Page 1 / Page 2 (nothing persisted) |
 | OTP_PENDING | OTP pending — no application yet | OTP screen |
 | DRAFT | Draft application (self-onboarding in progress) | First unfinished stage |
-| SALES_LEAD | Sales lead (contact verified, no onboarding data collected) | Lead outcome |
-| BLOCKED | Blocked (hard rule; personalised reason shown) | Blocked outcome |
+| NOT_ELIGIBLE | Not eligible (verified contact saved; personalised reason shown) | Not Eligible confirmation (saved details) |
 | PAUSED_CR | Paused — CR expired / suspended; saved and handed to Sales | Sales / manual follow-up message |
 | SUBMITTED | Submitted | Application Progress |
 | UNDER_REVIEW | Under review | Application Progress |
@@ -292,20 +304,18 @@ _Throttled after 5 Page-2 submissions per session (simulated rate limit / bot ch
 
 _Routing reads status + outcome first; only a DRAFT is routed by completion (first unfinished stage). Merchant entity (CR / National ID), Application and User / mobile are separate: knowing the CR never grants access._
 
-### Page 1 preliminary eligibility rules (ordered, KYB-RULES-v4-demo (2026-10-27))
+### Page 1 preliminary eligibility rules (ordered, KYB-RULES-v5-demo (2026-10-27))
 
-| Rule | Condition | Result | Reason code | Type |
-| --- | --- | --- | --- | --- |
-| KYB-R01 | Category blocked / blacklisted | BLOCKED | CATEGORY_NOT_SUPPORTED | business |
-| KYB-R02 | Regulatory prohibition for this applicant type | BLOCKED | REGULATORY_RESTRICTION | regulatory |
-| KYB-R03 | Activity requires a CR and the applicant is a Freelancer | BLOCKED | ACTIVITY_REQUIRES_CR | regulatory |
-| KYB-R04 | Freelancer category allowed online only, applicant sells offline | BLOCKED | CHANNEL_NOT_SUPPORTED | business |
-| KYB-R05 | Freelancer without a Freelancer Certificate: kept as a lead | SALES_LEAD | FL_CERT_REQUIRED | business |
-| KYB-R06 | Registered business below SAR 100,000: lead (Business Team decides under the proposed policy) | SALES_LEAD | REVENUE_BELOW_BAND | business |
-| KYB-R07 | Registered business above SAR 20,000,000: Sales lead | SALES_LEAD | REVENUE_ABOVE_BAND | business |
-| KYB-R08 | Everything else: self-onboarding | SELF_ONBOARDING | OK | internal |
+| Rule | Condition | Result | Not Eligible shown | Reason code | Type |
+| --- | --- | --- | --- | --- | --- |
+| KYB-R01 | Freelancer without a Freelancer Certificate | NOT_ELIGIBLE | Immediately on Page 1 (no Identify, no OTP) | FL_CERT_REQUIRED | business |
+| KYB-R02 | Category not supported (blacklisted) | NOT_ELIGIBLE | After Identify + OTP (details saved) | CATEGORY_NOT_SUPPORTED | business |
+| KYB-R03 | Regulatory prohibition for this applicant type | NOT_ELIGIBLE | After Identify + OTP (details saved) | REGULATORY_RESTRICTION | regulatory |
+| KYB-R04 | Activity requires a CR and the applicant is a Freelancer | NOT_ELIGIBLE | After Identify + OTP (details saved) | ACTIVITY_REQUIRES_CR | regulatory |
+| KYB-R05 | Freelancer category allowed online only, applicant sells offline | NOT_ELIGIBLE | After Identify + OTP (details saved) | CHANNEL_NOT_SUPPORTED | business |
+| KYB-R06 | Everything else, any revenue band: eligible for self-onboarding | ELIGIBLE | — | OK | internal |
 
-_First matching rule wins. Internal, before any external call. Revenue thresholds are configuration (SAR 100,000 / SAR 20,000,000). Production Eligibility Matrix: PRODUCT TASK._
+_First matching rule wins. Internal, before any external call. Only two results: ELIGIBLE / NOT_ELIGIBLE. Revenue (bands at SAR 100,000 / SAR 20,000,000) is collected but no rule reads it — it is a risk input. Production Eligibility Matrix: PRODUCT TASK._
 
 ### Category rules (synthetic fixture catalogue)
 
@@ -319,9 +329,9 @@ _First matching rule wins. Internal, before any external call. Revenue threshold
 | Services › Design & creative services | Allowed | Allowed |
 | Services › Photography | Allowed | Allowed |
 | Services › Business consulting | Allowed | Allowed |
-| Fixture examples (demo rules) › Example: blacklisted category | Blocked / blacklisted | Blocked / blacklisted |
+| Fixture examples (demo rules) › Example: unsupported (blacklisted) category | Not supported (blacklisted) | Not supported (blacklisted) |
 
-_Categories are allowed or blocked; there is no manual-review category route. Example only (e.g. gold & jewellery)._
+_A category is allowed or not supported (Not Eligible); there is no manual-review category route. Example only (e.g. gold & jewellery)._
 
 ### Government CR rules — hard (GOV-CR-v4-demo (2026-10-27))
 
@@ -335,32 +345,34 @@ _Categories are allowed or blocked; there is no manual-review category route. Ex
 | National Address | Missing / expired | continue + flag |
 | Legal entity | NON_SAUDI | continue + "additional documents required" (collected later) |
 
-_RESTRICTED follows the Sales route provisionally; the hard-block inventory is open._
+_RESTRICTED follows the Sales route provisionally; the Not Eligible inventory is open._
 
-### Hard blocks (rules) — separate from the risk score
+### Not Eligible rules (and the paused CR route) — separate from the risk score
 
 | Reason | Where | Source | Route |
 | --- | --- | --- | --- |
-| CATEGORY_NOT_SUPPORTED | Page 1 (declared) and after retrieval (verified) | Eligibility Matrix | Blocked, personalised reason |
-| REGULATORY_RESTRICTION | Page 1 | Eligibility Matrix (regulatory) | Blocked, personalised reason |
-| ACTIVITY_REQUIRES_CR | Page 1 / certificate activity | Eligibility Matrix (regulatory) | Blocked, personalised reason |
-| CHANNEL_NOT_SUPPORTED | Page 1 | Eligibility Matrix | Blocked, personalised reason |
-| ACTIVITY_REGULATED | After CR / certificate retrieval | Government activity mapping | Blocked, personalised reason |
-| NOT_OWNER_MANAGER | Page 2 declaration (after OTP) | Applicant declaration | Blocked; delegated onboarding is out of V1 |
-| NO_OWNER_MANAGER_ON_CR | After people retrieval | Government associated parties | Blocked; declaration not confirmed by government data |
-| FL_IBAN_NOT_LINKED | Page 2 declaration (after OTP) | Applicant declaration | Blocked until the bank account is linked |
+| FL_CERT_REQUIRED | Page 1 | Applicant type | Not Eligible immediately — no Identify, no OTP |
+| CATEGORY_NOT_SUPPORTED | Page 1 (declared) and after retrieval (verified) | Eligibility Matrix | Identify → OTP → Not Eligible (details saved, no paid check) |
+| REGULATORY_RESTRICTION | Page 1 | Eligibility Matrix (regulatory) | Identify → OTP → Not Eligible (details saved, no paid check) |
+| ACTIVITY_REQUIRES_CR | Page 1 / certificate activity | Eligibility Matrix (regulatory) | Identify → OTP → Not Eligible (details saved, no paid check) |
+| CHANNEL_NOT_SUPPORTED | Page 1 | Eligibility Matrix | Identify → OTP → Not Eligible (details saved, no paid check) |
+| ACTIVITY_REGULATED | After CR / certificate retrieval | Government activity mapping | Not Eligible, personalised reason |
+| NOT_OWNER_MANAGER | Page 2 declaration (after OTP) | Applicant declaration | Not Eligible; delegated onboarding is out of V1 |
+| NO_OWNER_MANAGER_ON_CR | After people retrieval | Government associated parties | Not Eligible; declaration not confirmed by government data |
+| FL_IBAN_NOT_LINKED | Page 2 declaration (after OTP) | Applicant declaration | Not Eligible until the bank account is linked |
+| FL_CERT_NOT_FOUND | Certificate pre-check (before Nafath) | Freelance platform | Not Eligible; no Nafath call |
 | CR_EXPIRED | After CR retrieval | Government CR status | Paused: saved application + Sales recovery |
 | CR_SUSPENDED | After CR retrieval | Government CR status | Paused: saved application + Sales recovery |
 | CR_RESTRICTED | After CR retrieval | Government CR status (provisional) | Paused: saved application + Sales recovery |
 
-_A hard regulatory or business rule is never converted into a score to let a merchant continue._
+_A regulatory or business Not Eligible rule is never converted into a score to let a merchant continue. Revenue is never a Not Eligible rule._
 
 ### Backend risk model (RISK-v1-demo (2026-10-27), synthetic)
 
 | Factor | Values → demo points |
 | --- | --- |
 | CR age | Under 12 months: 3 · 12–24 months: 2 · Over 24 months: 1 |
-| Declared revenue | BELOW_100K: 2 · SELF_SERVICE_BAND: 1 · ABOVE_20M: 0 |
+| Declared revenue | BELOW_100K: 2 · MID_BAND: 1 · ABOVE_20M: 0 |
 | Verified category group | retail: 2 · food: 1 · services: 1 · fixture: 1 |
 | Entity | SAUDI: 0 · NON_SAUDI: 2 |
 | National Address | VALID: 0 · MISSING: 1 · EXPIRED: 1 |
@@ -393,9 +405,10 @@ _Many-to-one. A CR carries several activities. Demo reconciliation: a regulated 
 | Applicant | Order of paid calls (backend) | What the applicant sees |
 | --- | --- | --- |
 | Before the first OTP | None (eligibility and existence checks are internal) | Page 1 → Page 2 → code |
+| Freelancer without certificate | None | Page 1 → Not Eligible |
 | Registered business | OTP → CR_DATA → PERSONS → MOBILE_MATCH → NAFATH | Code → owner / manager → Send to Nafath |
 | Freelancer | OTP → FL_CERTS → MOBILE_MATCH → NAFATH → IBAN | Code → Nafath → certificate → IBAN |
-| Sales lead / blocked | OTP only | Code → outcome |
+| Unsupported category / prerequisite No | OTP only | Code → Not Eligible (details saved) |
 | Expired / suspended CR | OTP → CR data (then stop) | Code → saved, Sales follow-up |
 | Ordinary resume | OTP only (valid checks reused) | Code → first unfinished stage |
 
@@ -495,9 +508,7 @@ _Freelancer IBAN linkage must be verified before Review can continue; without Na
 | --- | --- |
 | SUBMITTED | Your application has been submitted successfully. |
 | SUBMITTED_MANUAL | We have received your application. |
-| SALES_LEAD | Thank you. Our Sales team will contact you. |
-| FL_CERT_REQUIRED | A Freelancer Certificate is required to continue. |
-| BLOCKED | We can’t continue your application online. |
+| NOT_ELIGIBLE | Not eligible for Madfu onboarding |
 | PAUSED_CR | Your application is saved. |
 
 ### Internal reason codes (shown to the merchant only as a personalised sentence)
@@ -505,14 +516,12 @@ _Freelancer IBAN linkage must be verified before Review can continue; without Na
 | Code | Meaning |
 | --- | --- |
 | OK | No restriction |
-| CATEGORY_NOT_SUPPORTED | Category blocked / blacklisted |
+| CATEGORY_NOT_SUPPORTED | Category not supported (blacklisted) |
 | REGULATORY_RESTRICTION | Regulatory prohibition |
 | ACTIVITY_REQUIRES_CR | Activity requires a CR |
 | CHANNEL_NOT_SUPPORTED | Channel not allowed for this applicant type |
-| FL_CERT_REQUIRED | Freelancer without certificate (lead) |
+| FL_CERT_REQUIRED | Freelancer without certificate (Not Eligible on Page 1) |
 | FL_CERT_NOT_FOUND | No usable Freelancer Certificate found (pre-check) |
-| REVENUE_BELOW_BAND | CR revenue below SAR 100,000 (lead) |
-| REVENUE_ABOVE_BAND | CR revenue above SAR 20,000,000 (Sales lead) |
 | NOT_OWNER_MANAGER | Declared "No" to: Are you an owner or manager registered on this CR? |
 | NO_OWNER_MANAGER_ON_CR | No individual owner / manager on the CR (declaration not confirmed) |
 | FL_IBAN_NOT_LINKED | Declared "No" to: Is your IBAN linked to your Freelancer Certificate? |
@@ -525,18 +534,18 @@ _Freelancer IBAN linkage must be verified before Review can continue; without Na
 
 These are **not confirmed rules**. The prototype implements each configurably with synthetic values.
 
-- **OD-1 · PRODUCT TASK — Exact Eligibility Matrix.** Category · subcategory · applicant type · channel · revenue band · result · CR / certificate required · regulatory restriction · reason code · rule version. Prototype: fixture catalogue.
+- **OD-1 · PRODUCT TASK — Exact Eligibility Matrix.** Category · subcategory · applicant type · channel · result (Eligible / Not Eligible) · CR / certificate required · regulatory restriction · personalised reason · rule version. Revenue does not decide eligibility. Prototype: fixture catalogue.
 - **OD-2 · PRODUCT TASK — Exact government activity → category mapping.** Every activity code → Madfu subcategory (many-to-one). Prototype: synthetic codes.
 - **OD-3 · PRODUCT / COMPLIANCE DECISION — Multi-activity reconciliation behaviour.** Which activity wins (primary, any, most restrictive), and what happens when several map to different categories. Prototype: demo order (regulated blocks → match confirms → primary reclassifies → unmapped keeps the declaration).
 - **OD-4 · RISK DECISION — Risk scoring weights / formula.** Factors and weights (CR age, status, revenue, category, fraud, credit, compliance). Prototype: synthetic demo weights.
-- **OD-5 · PRODUCT / COMPLIANCE DECISION — Hard-block inventory.** The complete list of regulatory / business conditions that cannot continue, incl. how a restricted CR is handled (prototype: Sales route, provisional).
+- **OD-5 · PRODUCT / COMPLIANCE DECISION — Not Eligible inventory.** The complete list of regulatory / business conditions that cannot continue, incl. how a restricted CR is handled (prototype: Sales route, provisional).
 - **OD-6 · RISK DECISION — Low / Medium / High thresholds and their effect.** Thresholds and what each level changes (review depth, limits, pricing). Prototype: demo thresholds, no effect on the journey.
 - **OD-7 · PROVIDER / COMPLIANCE DECISION — Certificate lookup before Nafath.** Whether the freelance platform / privacy rules permit an existence check by National ID before Nafath. Prototype rule flag flCertificatePrecheckBeforeNafath = true.
 - **OD-8 · PROVIDER / COMPLIANCE DECISION — Mobile ↔ National ID provider / service behaviour.** Which service confirms mobile ownership, its cost, latency, coverage (e.g. prepaid / non-Saudi numbers) and reuse. Prototype: simulated service.
 - **OD-9 · COMPLIANCE DECISION — Behaviour after repeated mobile mismatch.** Prototype: 2 checks per application, then the verification step pauses with progress saved. Whether this escalates, blocks or routes to manual is open.
 - **OD-10 · PRODUCT TASK — Exact Pricing & Commission Matrix.** Verified category / subcategory → standard commission; tiers; effective dates. Prototype: synthetic.
 - **OD-11 · PRODUCT/COMMERCIAL DECISION — Evidence requested for a better rate.** Which documents or data qualify a rate review, and how an improved rate is applied after the contract. Prototype: two placeholder documents.
-- **OD-12 · LEGAL DECISION — Final Freelancer IBAN regulatory / legal wording.** The Page-2 question, the blocked message and the linkage requirement wording.
+- **OD-12 · LEGAL DECISION — Final Freelancer IBAN regulatory / legal wording.** The Page-2 question, the Not Eligible message and the linkage requirement wording.
 - **OD-13 · PRODUCT/ENGINEERING DECISION — Freshness rules by verification / result.** How long CR data, people, mobile match, Nafath, certificate and IBAN results stay valid. Prototype: reusable until invalidated; negative results per NEGATIVE_POLICY.
 - **OD-14 · OPERATIONS DECISION — Sales / manual recovery workflow after an expired / suspended CR.** Who owns it, how the CR is re-checked after correction (prototype: one controlled re-check by Sales), and how the merchant continues.
 - **OD-15 · OPERATIONS DECISION — Final application status lifecycle / SLA.** Statuses after submission (prototype: Submitted, Under review, Action required, Approved, Unable to proceed) and any SLA. None invented.
@@ -544,7 +553,8 @@ These are **not confirmed rules**. The prototype implements each configurably wi
 
 Other open points:
 
-- Exact treatment of SAR 100,000 and SAR 20,000,000 (prototype: inside the self-service band; above SAR 20,000,000 → Sales).
+- Exact revenue band boundaries at SAR 100,000 and SAR 20,000,000 and their risk weights (revenue no longer routes to Sales).
+- How Madfu contacts saved Not Eligible records when a category becomes supported, and whether such a record can then continue online (prototype: re-entry shows the Not Eligible confirmation).
 - Providers behind CR data, associated parties, mobile ownership, certificates, IBAN linkage and the contract (prototype: neutral simulated adapters).
 - Which additional documents non-Saudi entities need, and when operations collect them.
 - Payout IBAN for registered businesses: collected at activation in the Merchant Portal (not built here).
@@ -581,17 +591,17 @@ A reviewer-only **Back to previous step** button sits at the top of the controls
 
 Three separate areas, none of them merchant UI: **This step** (Page Scenarios: only what can happen on the current screen), **Start demo** (journey presets, received Continue links) and **Internal view** (lifecycle, routing, eligibility, verified category, activities, risk, hard blocks, mobiles, checks called / reused / invalidated, cost assumptions, next paid call, rate review, ledger).
 
-Journey presets (Start demo): Happy path — registered business · Happy path — Freelancer · Sales lead · Freelancer without certificate · Existing incomplete application · Submitted application · Live merchant · Mobile mismatch before Nafath · Expired CR · Resume (Continue link) · Review & edit.
+Journey presets (Start demo): Happy path — registered business · Happy path — Freelancer · Registered business above SAR 20M · Freelancer without certificate · Unsupported category · Existing incomplete application · Submitted application · Live merchant · Mobile mismatch before Nafath · Expired CR · Resume (Continue link) · Review & edit.
 
 ### Page Scenarios per screen
 
 Generated from `model/pageScenarios.ts`; options depend on the current state (e.g. applicant type, channel).
 
-- **Know Your Business** (None — internal eligibility rules only): Eligibility result: Self-onboarding (registered business) / Self-onboarding (Freelancer) / Sales lead (above SAR 20M) / Freelancer without certificate / Blacklisted category / Freelancer: activity requires a CR / Freelancer: online-only category, sells offline
-- **Identifier + mobile** (Madfu application and merchant records (internal), SMS OTP service (next)): Record lookup (internal): New applicant / Application already in progress / Application already submitted / Already a Madfu merchant — Owner or manager on the CR?: Yes → continue / No → not available online (V1) — Abuse controls: Too many requests (rate limit)
+- **Know Your Business** (None — internal eligibility rules only): Eligibility: Eligible Registered Business / Eligible Freelancer / Freelancer without Certificate → Not Eligible / Unsupported Category → Identify / OTP → Not Eligible
+- **Identifier + mobile** (Madfu application and merchant records (internal), SMS OTP service (next)): Record lookup (internal): New applicant / Application already in progress / Application already submitted / Already a Madfu merchant / Saved as Not Eligible earlier — Owner or manager on the CR?: Yes → continue / No → Not Eligible (V1) — Abuse controls: Too many requests (rate limit)
 - **OTP verification** (SMS OTP service): OTP result: Verified / Incorrect code / Invalid code (wrong format) / Expired / timed out — Actions: Resend code (3 left) / Edit mobile number
 - **Business verification (CR) + owner / manager** (Government CR data (status, age, activities, National Address, entity), Government associated parties): CR result: Active CR / Expired → saved + Sales / Suspended → saved + Sales / Provider unavailable / Several activities (government category differs) / Regulated activity among several — Risk attributes (backend only): CR 2 months old / CR 18 months old / National Address missing / Non-Saudi entity (documents later) — Owners / managers: One owner / manager / Several owners / managers / None (only a delegate / company) / People data unavailable
-- **Mobile ownership + Nafath** (Freelancer Certificate pre-check (backend, Freelancer), Mobile ownership service, Nafath): Certificate pre-check (backend, before Nafath): Certificate exists / No certificate → lead, no Nafath / Certificate service unavailable — Mobile ↔ National ID: Mobile matches / Mismatch, then the corrected mobile matches / Mismatch twice → verification paused — Nafath answer: Verified / Rejected / Timeout / Technical failure — Attempts: First failure — retry available / Final failed attempt → manual route
+- **Mobile ownership + Nafath** (Freelancer Certificate pre-check (backend, Freelancer), Mobile ownership service, Nafath): Certificate pre-check (backend, before Nafath): Certificate exists / No certificate → Not Eligible, no Nafath / Certificate service unavailable — Mobile ↔ National ID: Mobile matches / Mismatch, then the corrected mobile matches / Mismatch twice → verification paused — Nafath answer: Verified / Rejected / Timeout / Technical failure — Attempts: First failure — retry available / Final failed attempt → manual route
 - **Freelancer certificate** (Freelance platform (certificates)): Retrieval result: One certificate / Several certificates / One expired, one active / Already linked to another account / Certificate activity requires a CR
 - **Business Details** (Store-presence URL validation (format only), Freelancer IBAN linkage provider): Channel declared on Page 1 (simulator): Online / Offline / Both — Store presence links: Valid website / Maps links / Website: social-media page / Website: invalid / Maps: not a Google Maps link — Freelancer IBAN linkage: Verified / Not linked (first mismatch) / Not linked twice → another IBAN needed / Technical error (no attempt used) / Enter a different IBAN
 - **Commercial Offer** (Pricing & Commission Matrix (mock)): Better rate (optional): Standard offer only / Rate review requested (no file) / Evidence uploaded / Optional upload failed
@@ -604,22 +614,27 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 ### Know Your Business
 
 - **Eligible registered business** — Five answers, no URL. Check eligibility, then Page 2.
+- **Eligible Freelancer** — Freelancer with a certificate: National ID + mobile on Page 2.
 - **Eligible registered business — sells online and in store** — Channel captured now; the URLs are asked later in Business Details.
-- **Blacklisted category** — Blocked on Page 1 with a personalised reason; no OTP, no cost.
-- **Freelancer in a CR-only category** — Blocked on Page 1: the activity requires a CR.
-- **Freelancer category online only, sells offline** — Blocked on Page 1 (channel rule).
-- **Freelancer without certificate** — Lead route: National ID + mobile + OTP, then the certificate-required outcome.
-- **Registered business above SAR 20M** — Sales route: CR + mobile + OTP, then the Sales thank-you. Nothing else is asked.
-- **Registered business below SAR 100K** — Lead route (configurable threshold).
+- **Registered business below SAR 100K** — Eligible: revenue never routes. Self-onboarding as normal.
+- **Registered business above SAR 20M** — Eligible: self-onboarding as normal (no Sales route).
+- **Freelancer without certificate → Not Eligible** — Not Eligible directly on Page 1: no Identify, no National ID, no OTP.
+- **Unsupported category → Identify → OTP → Not Eligible** — Continues to Page 2 and the code so a verified contact is kept; then Not Eligible. No paid check.
+- **Freelancer in an unsupported category** — National ID + mobile + code, then Not Eligible (details saved).
+- **Freelancer in a CR-only category** — Identify + OTP, then Not Eligible: the activity requires a CR.
+- **Freelancer category online only, sells offline** — Identify + OTP, then Not Eligible (channel rule).
 
 ### Identify & routing
 
 - **New registered business** — CR + mobile + owner / manager = Yes → existence check → OTP to the entered mobile.
 - **New Freelancer** — National ID + mobile + IBAN linked = Yes → OTP.
-- **Not an owner or manager** — Owner / manager = No → OTP → blocked with the reason. Delegation is out of V1.
-- **Freelancer IBAN not linked** — IBAN linked = No → OTP → blocked with linkage instructions.
+- **Unsupported category: registered business** — CR + mobile (no prerequisite question) → OTP → Not Eligible, details saved. No CR, Nafath or other paid check.
+- **Unsupported category: Freelancer** — National ID + mobile → OTP → Not Eligible, details saved. No certificate or Nafath check.
+- **Not an owner or manager** — Owner / manager = No → OTP → Not Eligible with the reason. Delegation is out of V1.
+- **Freelancer IBAN not linked** — IBAN linked = No → OTP → Not Eligible with linkage instructions.
 - **Application already in progress** — Code goes to the REGISTERED mobile (•••••••123), not the entered one; then resume.
 - **Application already submitted** — Registered-mobile code → Application Progress. Never Review or Contract.
+- **Saved as Not Eligible earlier** — Registered-mobile code → the Not Eligible confirmation (saved details). No new record.
 - **Already a Madfu merchant** — Account-mobile code → merchant login. No application is created.
 - **Too many requests** — Rate limit / bot challenge on Page 2 (simulated).
 - **OTP errors** — Wrong codes, expiry, bounded resends.
@@ -633,9 +648,9 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - **CR suspended** — Same Sales recovery route.
 - **CR 2 months old** — Continues: CR age is a risk attribute (Internal view), not a rejection.
 - **Several CR activities, government category differs** — Declared café; registered consultancy + general trade: verified category = consultancy (pricing too).
-- **Regulated registered activity** — A gold & jewellery activity blocks whatever was declared.
+- **Regulated registered activity** — A gold & jewellery activity → Not Eligible, whatever was declared.
 - **CR provider unavailable** — Bounded retries in this session; Save & exit; retries reset on resume.
-- **No owner or manager on the CR** — Only a delegate and a company: the declaration is not confirmed → blocked.
+- **No owner or manager on the CR** — Only a delegate and a company: the declaration is not confirmed → Not Eligible.
 
 ### Mobile & Nafath
 
@@ -650,11 +665,11 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 
 - **Walk the Freelancer journey** — From Page 1 to Submit.
 - **Certificate pre-check, then Nafath** — Backend checks the certificate first (cost order); the applicant sees Nafath.
-- **No certificate found** — Stops before Nafath: certificate-required lead.
+- **No certificate found** — Stops before Nafath: Not Eligible (no Nafath cost).
 - **Certificate service unavailable** — Retry later; no Nafath call yet.
 - **Mobile not registered to the National ID** — Same mobile correction as for owners.
 - **Several certificates** — Choose one; its activity becomes the verified category.
-- **Certificate activity requires a CR** — Blocked after confirmation.
+- **Certificate activity requires a CR** — Not Eligible after confirmation.
 
 ### Business Details
 
@@ -712,3 +727,7 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - Unrestricted Review editing; Cancel that did not restore selections.
 - Unlimited OTP resends resetting the attempts.
 - Contract Decline action and the "contract declined" outcome (the Contract page has Back to Review and Agree & Submit only).
+- Sales-lead routing at initial eligibility: registered business above SAR 20M → Sales, below SAR 100K → lead, and the Sales / lead thank-you pages (every revenue band now self-onboards when otherwise eligible).
+- Freelancer without certificate entering National ID + mobile + OTP as a lead (now Not Eligible directly on Page 1).
+- Blacklisted / unsupported category stopping on Page 1 with no contact captured (now Identify + OTP, details saved, then Not Eligible).
+- "Blocked" / "Sales lead" outcome terminology (now "Not Eligible"; internal reason codes kept).

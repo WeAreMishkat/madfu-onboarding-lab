@@ -41,93 +41,58 @@ const S = (n: number) => STAGES[n - 1].label;
 const O = (k: OutcomeKind) => OUTCOME_COPY[k].title;
 export const REUSE_NOTE = 'Successful CR / owner / mobile / Nafath / certificate / IBAN checks are reused. Resume normally costs one OTP to the registered mobile.';
 
-/* ------------------------------------------------------------------ Master Board */
-
-export const SIMPLE_BOARD: JourneyMap = {
-  id: 'simple',
-  title: 'Master Board',
-  caption: 'Madfu Proposed: Page 1 eligibility → identifier + mobile → internal existence check → OTP → routing → self-onboarding.',
-  nodes: [
-    { id: 'kyb', kind: 'screen', label: `1 · ${S(1)}`, detail: 'Type · category · revenue · channel (no URLs)', col: 0, row: 1, step: 'kyb' },
-    { id: 'kyb-block', kind: 'outcome', label: 'Blocked on Page 1', detail: 'Personalised reason · no OTP, no cost', col: 0, row: 0, outcome: 'BLOCKED' },
-    { id: 'id', kind: 'screen', label: 'Identifier + mobile', detail: 'CR / National ID · mobile · owner-manager or IBAN-linked question', col: 1, row: 1, step: 'identify' },
-    { id: 'exist', kind: 'backend', label: 'Existing check', detail: 'Internal database · no provider call', col: 2, row: 1 },
-    { id: 'otp', kind: 'screen', label: 'OTP', detail: 'New: entered mobile · existing: REGISTERED mobile (•••123)', col: 3, row: 1, step: 'otp' },
-    { id: 'route', kind: 'decision', label: 'Routing', detail: 'Lifecycle status + eligibility + declaration', col: 4, row: 1 },
-    { id: 'sales', kind: 'outcome', label: 'Sales lead', detail: O('SALES_LEAD'), col: 4, row: 0, outcome: 'SALES_LEAD' },
-    { id: 'cr', kind: 'external', label: `New CR · 3 · ${S(3)}`, detail: 'CR data (activities, age → risk) · owners / managers · no CR page', col: 5, row: 1, step: 'persons' },
-    { id: 'fl', kind: 'backend', label: 'New Freelancer', detail: 'Certificate pre-check — backend only, before Nafath', col: 5, row: 2, step: 'nafath' },
-    { id: 'resume', kind: 'cached', label: 'Resume', detail: 'First unfinished stage · checks reused', col: 5, row: 3 },
-    { id: 'status', kind: 'screen', label: 'Submitted → Application Progress', detail: 'Never Review / Contract again', col: 5, row: 4, step: 'status' },
-    { id: 'login', kind: 'screen', label: 'Live merchant → login', detail: 'No new application', col: 5, row: 5, step: 'login' },
-    { id: 'blocked', kind: 'outcome', label: 'Blocked', detail: 'Not owner / manager · IBAN not linked · personalised', col: 5, row: 6, outcome: 'BLOCKED' },
-    { id: 'paused', kind: 'manual', label: 'CR expired / suspended', detail: 'Saved → Sales recovery · no Refresh, no more paid calls', col: 6, row: 0, outcome: 'PAUSED_CR' },
-    { id: 'naf', kind: 'external', label: 'Mobile ↔ National ID → Nafath', detail: 'Mismatch: another mobile + OTP · then Nafath (FL: then certificate)', col: 6, row: 1, step: 'nafath' },
-    { id: 'details', kind: 'screen', label: `4 · ${S(4)}`, detail: 'Website / Google Maps by channel · FL IBAN · no CR IBAN, VAT, branches', col: 7, row: 1, step: 'business' },
-    { id: 'offer', kind: 'screen', label: `5 · ${S(5)}`, detail: 'Standard offer → Continue · no plan selection · rate review optional', col: 8, row: 1, step: 'commercial' },
-    { id: 'review', kind: 'screen', label: `6 · ${S(6)}`, detail: 'Verified sections locked · transactional edit', col: 9, row: 1, step: 'review' },
-    { id: 'contract', kind: 'screen', label: `7 · ${S(7)}`, detail: 'Agree & Submit', col: 10, row: 1, step: 'contract' },
-    { id: 'submit', kind: 'outcome', label: '8 · Submitted', detail: 'Return later → Application Progress', col: 10, row: 2, step: 'outcome', outcome: 'SUBMITTED' },
-    { id: 'note', kind: 'note', label: REUSE_NOTE, col: 7, row: 4 }
-  ],
-  edges: [
-    { from: 'kyb', to: 'kyb-block', label: 'blocked' }, { from: 'kyb', to: 'id', label: 'continue' }, { from: 'id', to: 'exist' }, { from: 'exist', to: 'otp' }, { from: 'otp', to: 'route', label: 'verified' },
-    { from: 'route', to: 'sales', label: 'Sales' }, { from: 'route', to: 'cr', label: 'new CR' }, { from: 'route', to: 'fl', label: 'new FL' }, { from: 'route', to: 'resume', label: 'incomplete' },
-    { from: 'route', to: 'status', label: 'submitted' }, { from: 'route', to: 'login', label: 'live' }, { from: 'route', to: 'blocked', label: 'blocked' },
-    { from: 'cr', to: 'paused', label: 'expired / suspended' }, { from: 'cr', to: 'naf' }, { from: 'fl', to: 'naf', label: 'certificate exists' },
-    { from: 'naf', to: 'details', label: 'verified' }, { from: 'details', to: 'offer' }, { from: 'offer', to: 'review' }, { from: 'review', to: 'contract' }, { from: 'contract', to: 'submit', label: 'Agree & Submit' }
-  ]
-};
-
 /* ------------------------------------------------------------------ Detailed Logic Board (panels) */
 
+// The Master Board is the visual screen flow in model/masterBoard.ts (rendered from real screens).
+
 const A: JourneyMap = {
-  id: 'kyb', large: true, title: `A · ${S(1)} (Page 1): preliminary eligibility`,
-  caption: 'No identity, mobile, OTP or URL. The declared category is preliminary; it is replaced by the government activity once retrieved.',
+  id: 'kyb', large: true, title: `A · ${S(1)} (Page 1): Eligible or Not Eligible`,
+  caption: 'No identity, mobile, OTP or URL. Only two outcomes. Revenue is collected but never routes (risk input only). The declared category is preliminary; it is replaced by the government activity once retrieved.',
   nodes: [
-    { id: 'ne', kind: 'outcome', label: 'Blocked', detail: 'Blacklisted · regulatory · needs a CR · channel — personalised reason', col: 2, row: 0, outcome: 'BLOCKED' },
+    { id: 'ne', kind: 'outcome', label: 'Not Eligible (Page 1)', detail: 'Freelancer without certificate · no Identify, no National ID, no OTP', col: 2, row: 0, outcome: 'NOT_ELIGIBLE' },
     { id: 'matrix', kind: 'open', label: 'PRODUCT TASK: Eligibility Matrix', detail: 'Production catalogue not defined (fixture)', col: 3, row: 0 },
     { id: 'kyb', kind: 'screen', label: S(1), detail: 'Applicant type · Category · Subcategory · Annual revenue · Sales channel', col: 0, row: 1, step: 'kyb' },
     { id: 'draft', kind: 'backend', label: 'Qualification record (KYB-…)', detail: 'Temporary until linked after OTP', col: 1, row: 1 },
-    { id: 'engine', kind: 'decision', label: 'Eligibility engine', detail: `${ELIGIBILITY_RULES.length} ordered rules · allowed / blocked`, col: 2, row: 1 },
-    { id: 'ok', kind: 'connector', label: '→ Page 2 (self-onboarding)', col: 4, row: 1, step: 'identify' },
-    { id: 'lead', kind: 'connector', label: '→ Page 2 (Sales / no-certificate lead)', col: 2, row: 2, step: 'identify' },
-    { id: 'removed', kind: 'note', label: 'Moved out of Page 1: website and Google Maps links (now Business Details). No manual-review category route.', col: 0, row: 3 }
+    { id: 'engine', kind: 'decision', label: 'Eligibility engine', detail: `${ELIGIBILITY_RULES.length} ordered rules · Eligible / Not Eligible`, col: 2, row: 1 },
+    { id: 'ok', kind: 'connector', label: '→ B · Identify (eligible, any revenue band)', col: 4, row: 1, step: 'identify' },
+    { id: 'capture', kind: 'connector', label: '→ B · Identify + OTP, then Not Eligible (details saved)', col: 2, row: 2, step: 'identify' },
+    { id: 'removed', kind: 'note', label: 'Removed: Sales-lead, Blocked and manual-review routes; revenue routing (below SAR 100K / above SAR 20M). Website and Google Maps links are in Business Details.', col: 0, row: 3 }
   ],
   edges: [
-    { from: 'kyb', to: 'draft' }, { from: 'draft', to: 'engine' }, { from: 'engine', to: 'ok', label: 'SELF_ONBOARDING' },
-    { from: 'engine', to: 'ne', label: 'BLOCKED' }, { from: 'engine', to: 'lead', label: 'SALES_LEAD' }
+    { from: 'kyb', to: 'draft' }, { from: 'draft', to: 'engine' }, { from: 'engine', to: 'ok', label: 'ELIGIBLE' },
+    { from: 'engine', to: 'ne', label: 'FL without certificate' }, { from: 'engine', to: 'capture', label: 'unsupported category' }
   ]
 };
 
 const B: JourneyMap = {
   id: 'identify', large: true, title: 'B · Identifier + mobile, existence check, OTP and routing',
-  caption: 'An internal lookup decides where the code goes. Existing records are opened only by the REGISTERED mobile; the entered mobile is never used for them. No takeover workflow.',
+  caption: 'Only a Registered Business or a Freelancer with a certificate reaches Page 2. An internal lookup decides where the code goes. Existing records open only with the REGISTERED mobile. There is no Sales-lead route.',
   nodes: [
     { id: 'throttle', kind: 'backend', label: 'Rate limit / bot challenge', detail: `${LIMITS.identifyChecksPerSession} submissions / session`, col: 0, row: 0 },
-    { id: 'sales', kind: 'outcome', label: 'Sales lead', detail: 'Lead persisted · no further data', col: 5, row: 0, outcome: 'SALES_LEAD' },
-    { id: 'id', kind: 'screen', label: 'Identifier + mobile', detail: 'CR or National ID · mobile · "owner / manager?" or "IBAN linked?"', col: 0, row: 1, step: 'identify' },
-    { id: 'exist', kind: 'backend', label: 'Existence check', detail: 'Internal database: new · incomplete · submitted · live · paused', col: 1, row: 1 },
+    { id: 'ne', kind: 'outcome', label: 'Not Eligible — details received', detail: 'Unsupported category · verified contact saved · no paid check', col: 5, row: 0, outcome: 'NOT_ELIGIBLE' },
+    { id: 'id', kind: 'screen', label: 'Identifier + mobile', detail: 'CR or National ID · mobile · "owner / manager?" or "IBAN linked?" (eligible only)', col: 0, row: 1, step: 'identify' },
+    { id: 'exist', kind: 'backend', label: 'Existence check', detail: 'Internal database: new · incomplete · submitted · live · paused · not eligible', col: 1, row: 1 },
     { id: 'dec', kind: 'decision', label: 'Existing record?', col: 2, row: 1 },
     { id: 'otpn', kind: 'screen', label: 'OTP → entered mobile', detail: `contact_mobile_verified · ${LIMITS.otpAttempts} attempts, ${LIMITS.otpResends} resends`, col: 3, row: 1, step: 'otp' },
-    { id: 'route', kind: 'decision', label: 'Create application + route', detail: 'Eligibility + declaration', col: 4, row: 1 },
+    { id: 'route', kind: 'decision', label: 'Create record + route', detail: 'Eligibility + declaration', col: 4, row: 1 },
     { id: 'crn', kind: 'connector', label: '→ C · New registered business', col: 5, row: 1, step: 'persons' },
     { id: 'fln', kind: 'connector', label: '→ D · New Freelancer', col: 5, row: 2, step: 'nafath' },
+    { id: 'nesaved', kind: 'outcome', label: 'Not Eligible confirmation', detail: 'Saved Not Eligible record (registered mobile)', col: 1, row: 3, outcome: 'NOT_ELIGIBLE' },
     { id: 'otpr', kind: 'screen', label: 'OTP → REGISTERED mobile', detail: '"Code sent to the registered mobile ending •••123" · also the Continue link', col: 2, row: 3, step: 'otp' },
     { id: 'deny', kind: 'outcome', label: 'Code not completed', detail: 'No access · nothing exposed · no new application', col: 3, row: 3 },
-    { id: 'blk', kind: 'outcome', label: 'Blocked', detail: 'Not owner / manager · IBAN not linked (personalised)', col: 5, row: 3, outcome: 'BLOCKED' },
+    { id: 'pre', kind: 'outcome', label: 'Not Eligible', detail: 'Prerequisite = No: not owner / manager · IBAN not linked', col: 5, row: 3, outcome: 'NOT_ELIGIBLE' },
     { id: 'resume', kind: 'cached', label: 'DRAFT → resume', detail: 'First unfinished stage · checks reused', col: 0, row: 4 },
     { id: 'life', kind: 'decision', label: 'Lifecycle status', detail: 'Status + outcome, then completion', col: 2, row: 4 },
     { id: 'login', kind: 'screen', label: 'Live → merchant login', col: 3, row: 4, step: 'login' },
-    { id: 'fll', kind: 'outcome', label: 'Certificate required (lead)', detail: 'Freelancer without certificate', col: 5, row: 4, outcome: 'FL_CERT_REQUIRED' },
     { id: 'paused', kind: 'manual', label: 'PAUSED_CR', detail: 'Sales follow-up message', col: 1, row: 5, outcome: 'PAUSED_CR' },
     { id: 'status', kind: 'screen', label: 'Submitted → Application Progress', col: 2, row: 5, step: 'status' }
   ],
   edges: [
     { from: 'id', to: 'throttle', dashed: true }, { from: 'id', to: 'exist' }, { from: 'exist', to: 'dec' }, { from: 'dec', to: 'otpn', label: 'new' }, { from: 'otpn', to: 'route', label: 'verified' },
-    { from: 'route', to: 'sales', label: 'Sales' }, { from: 'route', to: 'crn', label: 'CR' }, { from: 'route', to: 'fln', label: 'FL' }, { from: 'route', to: 'blk', label: 'No' }, { from: 'route', to: 'fll', label: 'no cert' },
+    { from: 'route', to: 'ne', label: 'not eligible' }, { from: 'route', to: 'crn', label: 'CR' }, { from: 'route', to: 'fln', label: 'FL' }, { from: 'route', to: 'pre', label: 'No' },
     { from: 'dec', to: 'otpr', label: 'existing' }, { from: 'otpr', to: 'deny', label: 'failed', dashed: true }, { from: 'otpr', to: 'life', label: 'verified' },
-    { from: 'life', to: 'resume', label: 'DRAFT' }, { from: 'life', to: 'paused', label: 'paused' }, { from: 'life', to: 'status', label: 'submitted' }, { from: 'life', to: 'login', label: 'live' }
+    { from: 'life', to: 'resume', label: 'DRAFT' }, { from: 'life', to: 'paused', label: 'paused' }, { from: 'life', to: 'status', label: 'submitted' }, { from: 'life', to: 'login', label: 'live' },
+    { from: 'life', to: 'nesaved', label: 'not eligible' }
   ]
 };
 
@@ -146,11 +111,11 @@ const C: JourneyMap = {
     { id: 'pick', kind: 'screen', label: 'Select owner / manager', detail: 'Masked names · role · single choice', col: 5, row: 1, step: 'persons' },
     { id: 'next', kind: 'connector', label: '→ E · Mobile ↔ National ID + Nafath', col: 6, row: 1, step: 'nafath' },
     { id: 'unav', kind: 'screen', label: 'Provider unavailable', detail: `Retry (${LIMITS.providerRetries}/session) · Save & exit · reset on resume`, col: 1, row: 2, step: 'persons' },
-    { id: 'reg', kind: 'outcome', label: 'Blocked', detail: 'Regulated activity', col: 3, row: 2, outcome: 'BLOCKED' },
-    { id: 'none', kind: 'outcome', label: 'Blocked', detail: 'No owner / manager: declaration not confirmed', col: 4, row: 2, outcome: 'BLOCKED' },
+    { id: 'reg', kind: 'outcome', label: 'Not Eligible', detail: 'Regulated activity', col: 3, row: 2, outcome: 'NOT_ELIGIBLE' },
+    { id: 'none', kind: 'outcome', label: 'Not Eligible', detail: 'No owner / manager: declaration not confirmed', col: 4, row: 2, outcome: 'NOT_ELIGIBLE' },
     { id: 'od-map', kind: 'open', label: 'PRODUCT TASK: activity mapping', col: 0, row: 3 },
     { id: 'od-multi', kind: 'open', label: 'Multi-activity reconciliation', col: 1, row: 3 },
-    { id: 'od-hard', kind: 'open', label: 'Hard-block inventory', col: 2, row: 3 },
+    { id: 'od-hard', kind: 'open', label: 'Not Eligible inventory', col: 2, row: 3 },
     { id: 'od-risk', kind: 'open', label: 'Risk weights / thresholds', col: 3, row: 3 }
   ],
   edges: [
@@ -164,9 +129,9 @@ const D: JourneyMap = {
   id: 'fl', large: true, title: `D · ${S(3)}: Freelancer`,
   caption: `Cost order (rule flag ${RULE_FLAGS.flCertificatePrecheckBeforeNafath ? 'ON' : 'OFF'}): the backend checks that a certificate exists BEFORE Nafath, silently. The applicant still sees Nafath → certificate; no certificate detail is shown before Nafath.`,
   nodes: [
-    { id: 'none', kind: 'outcome', label: 'Certificate required', detail: 'No certificate: lead, NO Nafath call', col: 1, row: 0, outcome: 'FL_CERT_REQUIRED' },
+    { id: 'none', kind: 'outcome', label: 'Not Eligible', detail: 'No certificate found: NO Nafath call', col: 1, row: 0, outcome: 'NOT_ELIGIBLE' },
     { id: 'certc', kind: 'cached', label: 'Pre-check result reused', detail: 'Details shown now, no new call', col: 4, row: 0 },
-    { id: 'blk', kind: 'outcome', label: 'Blocked', detail: 'Certificate activity requires a CR', col: 5, row: 0, outcome: 'BLOCKED' },
+    { id: 'blk', kind: 'outcome', label: 'Not Eligible', detail: 'Certificate activity requires a CR', col: 5, row: 0, outcome: 'NOT_ELIGIBLE' },
     { id: 'start', kind: 'connector', label: 'From routing: new Freelancer (DRAFT)', col: 0, row: 1 },
     { id: 'pre', kind: 'external', label: 'Certificate pre-check', detail: 'Backend only · by National ID', col: 1, row: 1, step: 'nafath' },
     { id: 'naf', kind: 'connector', label: '→ E · Mobile ↔ National ID + Nafath', col: 2, row: 1 },
@@ -285,7 +250,7 @@ const I: JourneyMap = {
     { id: 'od', kind: 'open', label: 'OPERATIONS: final status lifecycle / SLA', col: 0, row: 3 }
   ],
   edges: [
-    { from: 'review', to: 'gate' }, { from: 'gate', to: 'contract', label: 'pass' }, { from: 'gate', to: 'mv', label: 'blocked' }, { from: 'contract', to: 'sub', label: 'Agree & Submit' },
+    { from: 'review', to: 'gate' }, { from: 'gate', to: 'contract', label: 'pass' }, { from: 'gate', to: 'mv', label: 'not available' }, { from: 'contract', to: 'sub', label: 'Agree & Submit' },
     { from: 'sub', to: 'status', label: 'later' }, { from: 'status', to: 'states', dashed: true }, { from: 'status', to: 'login', label: 'live', dashed: true }
   ]
 };
@@ -306,7 +271,7 @@ const J: JourneyMap = {
 };
 
 export const DETAILED_BOARD: JourneyMap[] = [A, B, C, D, E, F, G, H, I, J];
-export const ALL_BOARDS: JourneyMap[] = [SIMPLE_BOARD, ...DETAILED_BOARD];
+export const ALL_BOARDS: JourneyMap[] = [...DETAILED_BOARD];
 
 /**
  * Split a wide map into two readable parts (used by the PDF). Edges that cross the split end at, and

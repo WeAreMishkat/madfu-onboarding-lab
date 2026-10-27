@@ -2,6 +2,10 @@
  * Madfu Proposed v4 — pure transitions. Components call these through `apply(fn)`; tests call them
  * directly. No transition talks to a real service: answers come from the Prototype Controls (Sim).
  *
+ * Eligibility has two outcomes, ELIGIBLE and NOT_ELIGIBLE; revenue never routes. A Freelancer without a
+ * certificate is Not Eligible on Page 1 (no identifier, mobile or OTP). An unsupported category goes
+ * through Identify + OTP (verified contact saved), then Not Eligible — no paid check after the OTP.
+ *
  * Order: Know Your Business (internal) → Identifier + mobile + prerequisite → internal existence
  * check → OTP (entered mobile for a new identifier; REGISTERED mobile for an existing application or
  * account) → lifecycle routing → self-onboarding (CR: CR data + owners/managers; FL: certificate
@@ -83,7 +87,7 @@ export function initialApplication(seed = Date.now()): Application {
   };
 }
 
-export const initialBackend = (): Backend => ({ qualifications: {}, applications: {}, identities: {}, merchants: {}, leads: [], tokens: {}, sms: [] });
+export const initialBackend = (): Backend => ({ qualifications: {}, applications: {}, identities: {}, merchants: {}, notEligible: [], tokens: {}, sms: [] });
 
 export function initialState(): ProposedState {
   return { app: initialApplication(), sim: initialSim(), scenarioId: null, backend: initialBackend() };
@@ -125,6 +129,17 @@ function finish(s: ProposedState, outcome: OutcomeKind, status: Lifecycle, reaso
   return go(s, 'outcome', { outcome, status, outcomeReason: reason, returnTo: null, editBaseline: null, submittedAt: status === 'SUBMITTED' ? now() : s.app.submittedAt });
 }
 
+/**
+ * Not Eligible with a verified contact: the record is kept (identifier, verified mobile, Page-1
+ * answers, reason) so Madfu can contact the applicant if eligibility changes. No further step.
+ */
+function notEligible(s: ProposedState, reason: ReasonCode): ProposedState {
+  const { app } = s;
+  const record = { applicationId: app.id!, qualificationId: app.qualificationId, kyb: app.kyb, identifier: app.identity.identifier, mobile: app.registeredMobile, reason, at: now() };
+  const saved = { ...s, backend: { ...s.backend, notEligible: [...s.backend.notEligible.filter((r) => r.applicationId !== app.id), record] } };
+  return revokeTokens(finish(saved, 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', reason));
+}
+
 /** Continue links stop working when the application leaves DRAFT or its mobile changes. */
 function revokeTokens(s: ProposedState): ProposedState {
   const id = s.app.id;
@@ -156,7 +171,7 @@ export function routeFor(app: Application): StepId {
   if (app.status === 'DRAFT') return firstIncomplete(app);
   if (SUBMITTED_STATUSES.includes(app.status)) return 'status';
   if (app.status === 'LIVE') return 'login';
-  if (app.status === 'SALES_LEAD' || app.status === 'BLOCKED' || app.status === 'PAUSED_CR') return 'outcome';
+  if (app.status === 'NOT_ELIGIBLE' || app.status === 'PAUSED_CR') return 'outcome';
   return app.eligibility ? 'identify' : 'kyb';
 }
 
@@ -202,19 +217,26 @@ export const back = (s: ProposedState): ProposedState => {
 export const setKyb = (s: ProposedState, patch: Partial<Application['kyb']>): ProposedState =>
   s.app.id ? s : withApp(s, { kyb: { ...s.app.kyb, ...patch } });
 
-/** Evaluate preliminary eligibility (internal, no external call) and route. Saves the qualification record. */
+/**
+ * Evaluate preliminary eligibility (internal, no external call) and route. Saves the qualification
+ * record. Only a Page-1 Not Eligible (Freelancer without certificate) stops here; everyone else —
+ * eligible or not — continues to Identify.
+ */
 export function submitKyb(s: ProposedState): ProposedState {
   const k = s.app.kyb;
   if (!kybComplete(k) || s.app.id) return s;
   const eligibility = evaluateEligibility({ kind: k.kind, sub: k.sub, revenue: k.revenue, channel: k.channel });
   const backend = { ...s.backend, qualifications: { ...s.backend.qualifications, [s.app.qualificationId]: { kyb: k, eligibility, at: eligibility.at, linkedTo: null } } };
   const next: ProposedState = { ...s, backend, app: log({ ...s.app, eligibility }, { kind: 'internal', check: 'ELIGIBILITY', note: `Preliminary eligibility ${eligibility.result} (${eligibility.ruleId}) — internal, no provider call` }) };
-  if (eligibility.result === 'BLOCKED') return finish(next, 'BLOCKED', 'BLOCKED', eligibility.reason);
+  if (eligibility.result === 'NOT_ELIGIBLE' && eligibility.notEligibleAt === 'KYB') return finish(next, 'NOT_ELIGIBLE', 'NOT_ELIGIBLE', eligibility.reason);
   return go(next, 'identify', { identity: { ...next.app.identity, prerequisite: null } });
 }
 
-/** Page 2 asks the prerequisite question only on the self-onboarding route. */
-export const asksPrerequisite = (app: Application) => app.eligibility?.result === 'SELF_ONBOARDING' && (app.kyb.kind === 'CR' || app.kyb.kind === 'FL_CERT');
+/** Page 2 asks the prerequisite question only when the applicant is eligible (it only matters for self-onboarding). */
+export const asksPrerequisite = (app: Application) => app.eligibility?.result === 'ELIGIBLE' && (app.kyb.kind === 'CR' || app.kyb.kind === 'FL_CERT');
+
+/** Not Eligible after the OTP: the applicant leaves a verified contact and sees Not Eligible (no paid check). */
+export const capturesNotEligible = (app: Application) => app.eligibility?.result === 'NOT_ELIGIBLE' && app.eligibility.notEligibleAt === 'AFTER_OTP';
 
 /* ------------------------------------------------------------------ Page 2: identifier + mobile, existence check */
 
@@ -229,7 +251,8 @@ function ensureFixture(s: ProposedState): ProposedState {
   const existing = s.backend.applications[s.backend.identities[id] ?? ''];
   if (existing) return s;
   const kind = s.app.kyb.kind === 'CR' ? 'CR' : 'FL_CERT';
-  const saved = prefill(kind, forced === 'submitted' ? 'status' : 'business', { identifier: id, mobile: DEMO.registeredMobile });
+  const who = { identifier: id, mobile: DEMO.registeredMobile };
+  const saved = forced === 'not_eligible' ? notEligibleRecord(kind, who) : prefill(kind, forced === 'submitted' ? 'status' : 'business', who);
   return { ...s, backend: { ...s.backend, applications: { ...s.backend.applications, [saved.id!]: saved }, identities: { ...s.backend.identities, [id]: saved.id! } } };
 }
 
@@ -245,6 +268,7 @@ export function existenceFor(s: ProposedState): { existence: Existence; mobile: 
     if (SUBMITTED_STATUSES.includes(saved.status)) return { existence: 'submitted', mobile: saved.registeredMobile, appId };
     if (saved.status === 'LIVE') return { existence: 'live', mobile: saved.registeredMobile, appId };
     if (saved.status === 'PAUSED_CR') return { existence: 'paused', mobile: saved.registeredMobile, appId };
+    if (saved.status === 'NOT_ELIGIBLE') return { existence: 'not_eligible', mobile: saved.registeredMobile, appId };
   }
   return { existence: 'new', mobile: s.app.identity.mobile, appId: null };
 }
@@ -303,7 +327,10 @@ export function editMobileFromOtp(s: ProposedState): ProposedState {
 
 /* ------------------------------------------------------------------ after the first OTP: create + route */
 
-/** New identifier, contact mobile verified: create the Application, link Stage 1, route by eligibility + declaration. */
+/**
+ * New identifier, contact mobile verified: create the record, link Stage 1, route by eligibility +
+ * declaration. Not Eligible (category) → details saved, Not Eligible page, no further call.
+ */
 function createApplication(s: ProposedState): ProposedState {
   const at = now();
   const id = newApplicationId(Date.parse(s.app.createdAt) + Object.keys(s.backend.applications).length);
@@ -316,12 +343,8 @@ function createApplication(s: ProposedState): ProposedState {
     ...s, backend,
     app: { ...s.app, id, kybSnapshot, status: 'DRAFT', registeredMobile: mobile, contactMobileVerified: true, sessionVerified: true }
   };
-  if (e.result === 'SALES_LEAD') {
-    const lead = { applicationId: id, qualificationId: s.app.qualificationId, kyb: s.app.kyb, identifier: s.app.identity.identifier, mobile, reason: e.reason, at };
-    const withLead = { ...base, backend: { ...base.backend, leads: [...base.backend.leads, lead] } };
-    return finish(withLead, e.reason === 'FL_CERT_REQUIRED' ? 'FL_CERT_REQUIRED' : 'SALES_LEAD', 'SALES_LEAD', e.reason);
-  }
-  if (s.app.identity.prerequisite === 'no') return finish(base, 'BLOCKED', 'BLOCKED', s.app.kyb.kind === 'CR' ? 'NOT_OWNER_MANAGER' : 'FL_IBAN_NOT_LINKED');
+  if (e.result === 'NOT_ELIGIBLE') return notEligible(base, e.reason);
+  if (s.app.identity.prerequisite === 'no') return notEligible(base, s.app.kyb.kind === 'CR' ? 'NOT_OWNER_MANAGER' : 'FL_IBAN_NOT_LINKED');
   return go(base, s.app.kyb.kind === 'CR' ? 'persons' : 'nafath');
 }
 
@@ -411,7 +434,7 @@ export function runBusinessVerification(s: ProposedState): ProposedState {
     else flags = app.flags;
     app = { ...app, flags, categoryCheck: cat.check };
     app = log({ ...app, risk: assessRisk(app) }, { kind: 'internal', check: 'RISK', note: 'Risk calculated from CR age, entity, address, revenue, verified category (synthetic)' });
-    if (cat.block) return finish({ ...next, app }, 'BLOCKED', 'BLOCKED', cat.block);
+    if (cat.block) return notEligible({ ...next, app }, cat.block);
     next = { ...next, app };
   }
   if (reusable(next.app, 'PERSONS', personsFingerprint(next.app)) && next.app.persons.status === 'loaded') return persist(next);
@@ -423,7 +446,7 @@ export function runBusinessVerification(s: ProposedState): ProposedState {
   app = store(app, makeRecord('PERSONS', personsFingerprint(app), `${eligible.length} owner(s) / manager(s)`, now(), providerRef('PPL', tries)));
   if (!eligible.length) {
     // The Page-2 declaration is not confirmed by government data. Delegates are out of V1.
-    return finish({ ...next, app: { ...app, persons: { status: 'none', tries, list, selectedId: null } } }, 'BLOCKED', 'BLOCKED', 'NO_OWNER_MANAGER_ON_CR');
+    return notEligible({ ...next, app: { ...app, persons: { status: 'none', tries, list, selectedId: null } } }, 'NO_OWNER_MANAGER_ON_CR');
   }
   return persist({ ...next, app: { ...app, persons: { status: 'loaded', tries, list, selectedId: eligible.length === 1 ? eligible[0].id : app.persons.selectedId } } });
 }
@@ -449,11 +472,7 @@ function retrieveCertificates(s: ProposedState, when: 'pre-check' | 'after Nafat
   const list = r === 'none' ? [] : certificatesAdapter(r, app.kyb.sub);
   const selectable = selectableCertificates(list);
   app = store(app, makeRecord('FL_CERTS', certsFingerprint(app), selectable.length ? `${list.length} certificate(s), ${selectable.length} usable` : 'no usable certificate', now(), providerRef('FLC', tries)));
-  if (!selectable.length) {
-    const lead = { applicationId: app.id!, qualificationId: app.qualificationId, kyb: app.kyb, identifier: app.identity.identifier, mobile: app.registeredMobile, reason: 'FL_CERT_NOT_FOUND' as const, at: now() };
-    const next = { ...s, app: { ...app, certs: { ...app.certs, precheck: 'none' as const, tries, list } }, backend: { ...s.backend, leads: [...s.backend.leads, lead] } };
-    return finish(next, 'FL_CERT_REQUIRED', 'SALES_LEAD', 'FL_CERT_NOT_FOUND');
-  }
+  if (!selectable.length) return notEligible({ ...s, app: { ...app, certs: { ...app.certs, precheck: 'none', tries, list } } }, 'FL_CERT_NOT_FOUND');
   return persist({ ...s, app: { ...app, certs: { ...app.certs, precheck: 'found', tries, list } } });
 }
 
@@ -608,7 +627,7 @@ export function confirmCertificate(s: ProposedState): ProposedState {
   if (cat.check.outcome === 'UNMAPPED') flags = addFlag(flags, 'ACTIVITY_UNMAPPED');
   let app: Application = { ...s.app, flags, categoryCheck: cat.check };
   app = log({ ...app, risk: assessRisk(app) }, { kind: 'internal', check: 'RISK', note: 'Risk calculated from revenue and verified certificate category (synthetic)' });
-  if (cat.block) return finish({ ...s, app }, 'BLOCKED', 'BLOCKED', cat.block);
+  if (cat.block) return notEligible({ ...s, app }, cat.block);
   return go({ ...s, app }, 'business');
 }
 
@@ -771,14 +790,14 @@ const REVIEWER_STEPS: StepId[] = ['persons', 'nafath', 'certificates', 'business
  * Reviewer / prototype navigation only — not merchant UX. Moves to the previous screen WITHOUT
  * changing anything else: no verification, lifecycle status or saved value is reset, and locked
  * screens simply show their existing values. Not available during an edit, on a code screen, or once
- * the application has left DRAFT (submitted, lead, blocked, paused).
+ * the application has left DRAFT (submitted, not eligible, paused).
  */
 export function reviewerBackTarget(app: Application): StepId | null {
   if (app.returnTo || app.editBaseline) return null;
   if (!app.id) {
     if (app.step === 'identify') return 'kyb';
     if (app.step === 'otp' && app.otp.purpose === 'application') return 'identify';
-    if (app.step === 'outcome' && app.status === 'BLOCKED') return 'kyb';
+    if (app.step === 'outcome' && app.status === 'NOT_ELIGIBLE') return 'kyb';
     return null;
   }
   if (app.status !== 'DRAFT') return null;
@@ -844,8 +863,8 @@ export function prefill(kind: PrefillKind, upTo: StepId, who: { identifier?: str
   const at = (s: ProposedState) => ({ ...s.app, step: upTo, lastStep: furthest(s.app.lastStep, upTo) });
   let s: ProposedState = { app: initialApplication(1_760_000_000_000), sim: initialSim(), scenarioId: null, backend: initialBackend() };
   s = setKyb(s, isFl
-    ? { kind, group: 'services', sub: 'services-design', revenue: 'SELF_SERVICE_BAND', channel: 'online' }
-    : { kind, group: 'food', sub: 'food-cafe', revenue: 'SELF_SERVICE_BAND', channel: 'both' });
+    ? { kind, group: 'services', sub: 'services-design', revenue: 'MID_BAND', channel: 'online' }
+    : { kind, group: 'food', sub: 'food-cafe', revenue: 'MID_BAND', channel: 'both' });
   if (!reach('kyb')) return at(s);
   s = submitKyb(s);
   s = setIdentity(s, { identifier: who.identifier ?? (isFl ? DEMO.nationalId : DEMO.cr), mobile: who.mobile ?? DEMO.mobile, prerequisite: 'yes' });
@@ -870,6 +889,16 @@ export function prefill(kind: PrefillKind, upTo: StepId, who: { identifier?: str
   if (reach('contract')) s = agreeAndSubmit(s);
   if (upTo === 'status' || upTo === 'outcome') return { ...s.app, step: upTo === 'status' ? 'status' : 'outcome' };
   return at(s);
+}
+
+/** A record saved as Not Eligible (unsupported category, verified contact) — for scenarios and fixtures. */
+export function notEligibleRecord(kind: PrefillKind, who: { identifier?: string; mobile?: string } = {}): Application {
+  let s: ProposedState = { app: initialApplication(1_760_000_000_000), sim: initialSim(), scenarioId: null, backend: initialBackend() };
+  s = setKyb(s, { kind, group: 'fixture', sub: 'fixture-blocked', revenue: 'MID_BAND', channel: 'online' });
+  s = submitKyb(s);
+  s = setIdentity(s, { identifier: who.identifier ?? (kind === 'FL_CERT' ? DEMO.nationalId : DEMO.cr), mobile: who.mobile ?? DEMO.mobile });
+  s = verifyOtp(submitIdentify(s), DEMO_SMS_CODE);
+  return s.app;
 }
 
 /** A state whose backend holds `app` (saved), so resume and existence checks see it. */

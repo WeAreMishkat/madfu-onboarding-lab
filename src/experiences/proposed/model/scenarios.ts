@@ -39,8 +39,8 @@ const simWith = (patch: Partial<Sim> = {}, cr: Partial<Sim['cr']> = {}): Sim => 
 
 /* ------------------------------------------------------------------ builders */
 
-const KYB_CR: Kyb = { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue: 'SELF_SERVICE_BAND', channel: 'online' };
-const KYB_FL: Kyb = { kind: 'FL_CERT', group: 'services', sub: 'services-design', revenue: 'SELF_SERVICE_BAND', channel: 'online' };
+const KYB_CR: Kyb = { kind: 'CR', group: 'retail', sub: 'retail-fashion', revenue: 'MID_BAND', channel: 'online' };
+const KYB_FL: Kyb = { kind: 'FL_CERT', group: 'services', sub: 'services-design', revenue: 'MID_BAND', channel: 'online' };
 
 /** Page 1 filled in, ready for "Check eligibility". */
 function atKyb(id: string, kyb: Partial<Kyb>, sim: Sim = simWith()): ProposedState {
@@ -52,7 +52,7 @@ function atKyb(id: string, kyb: Partial<Kyb>, sim: Sim = simWith()): ProposedSta
 function atIdentify(id: string, kyb: Partial<Kyb>, sim: Sim = simWith(), prerequisite: 'yes' | 'no' | null = 'yes'): ProposedState {
   const s = submitKyb(atKyb(id, kyb, sim));
   const isCr = s.app.kyb.kind === 'CR';
-  return setIdentity(s, { identifier: isCr ? DEMO.cr : DEMO.nationalId, mobile: DEMO.mobile, prerequisite: s.app.eligibility?.result === 'SELF_ONBOARDING' ? prerequisite : null });
+  return setIdentity(s, { identifier: isCr ? DEMO.cr : DEMO.nationalId, mobile: DEMO.mobile, prerequisite: s.app.eligibility?.result === 'ELIGIBLE' ? prerequisite : null });
 }
 
 /** Healthy application walked to `step`, saved in the backend. */
@@ -79,23 +79,28 @@ const withStatus = (status: Lifecycle) => (a: Application): Application => ({ ..
 /* ------------------------------------------------------------------ the list */
 
 export const SCENARIOS: Scenario[] = [
-  // Page 1
+  // Page 1 — only two outcomes: Eligible / Not Eligible. Revenue never routes.
   { id: 'kyb-cr-online', group: 'Know Your Business', label: 'Eligible registered business', hint: 'Five answers, no URL. Check eligibility, then Page 2.', build: () => atKyb('kyb-cr-online', {}) },
+  { id: 'kyb-fl', group: 'Know Your Business', label: 'Eligible Freelancer', hint: 'Freelancer with a certificate: National ID + mobile on Page 2.', build: () => atKyb('kyb-fl', KYB_FL) },
   { id: 'kyb-cr-both', group: 'Know Your Business', label: 'Eligible registered business — sells online and in store', hint: 'Channel captured now; the URLs are asked later in Business Details.', build: () => atKyb('kyb-cr-both', { group: 'food', sub: 'food-cafe', channel: 'both' }) },
-  { id: 'kyb-blocked', group: 'Know Your Business', label: 'Blacklisted category', hint: 'Blocked on Page 1 with a personalised reason; no OTP, no cost.', build: () => atKyb('kyb-blocked', { group: 'fixture', sub: 'fixture-blocked' }) },
-  { id: 'kyb-fl-cr-required', group: 'Know Your Business', label: 'Freelancer in a CR-only category', hint: 'Blocked on Page 1: the activity requires a CR.', build: () => atKyb('kyb-fl-cr-required', { kind: 'FL_CERT', group: 'food', sub: 'food-cafe' }) },
-  { id: 'kyb-fl-offline', group: 'Know Your Business', label: 'Freelancer category online only, sells offline', hint: 'Blocked on Page 1 (channel rule).', build: () => atKyb('kyb-fl-offline', { kind: 'FL_CERT', group: 'retail', sub: 'retail-electronics', channel: 'offline' }) },
-  { id: 'kyb-fl-no-cert', group: 'Know Your Business', label: 'Freelancer without certificate', hint: 'Lead route: National ID + mobile + OTP, then the certificate-required outcome.', build: () => atKyb('kyb-fl-no-cert', { kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
-  { id: 'kyb-cr-sales', group: 'Know Your Business', label: 'Registered business above SAR 20M', hint: 'Sales route: CR + mobile + OTP, then the Sales thank-you. Nothing else is asked.', build: () => atKyb('kyb-cr-sales', { revenue: 'ABOVE_20M' }) },
-  { id: 'kyb-cr-low', group: 'Know Your Business', label: 'Registered business below SAR 100K', hint: 'Lead route (configurable threshold).', build: () => atKyb('kyb-cr-low', { revenue: 'BELOW_100K' }) },
+  { id: 'kyb-cr-low', group: 'Know Your Business', label: 'Registered business below SAR 100K', hint: 'Eligible: revenue never routes. Self-onboarding as normal.', build: () => atKyb('kyb-cr-low', { revenue: 'BELOW_100K' }) },
+  { id: 'kyb-cr-high', group: 'Know Your Business', label: 'Registered business above SAR 20M', hint: 'Eligible: self-onboarding as normal (no Sales route).', build: () => atKyb('kyb-cr-high', { revenue: 'ABOVE_20M' }) },
+  { id: 'kyb-fl-no-cert', group: 'Know Your Business', label: 'Freelancer without certificate → Not Eligible', hint: 'Not Eligible directly on Page 1: no Identify, no National ID, no OTP.', build: () => atKyb('kyb-fl-no-cert', { kind: 'FL_NO_CERT', group: 'services', sub: 'services-design' }) },
+  { id: 'kyb-unsupported', group: 'Know Your Business', label: 'Unsupported category → Identify → OTP → Not Eligible', hint: 'Continues to Page 2 and the code so a verified contact is kept; then Not Eligible. No paid check.', build: () => atKyb('kyb-unsupported', { group: 'fixture', sub: 'fixture-blocked' }) },
+  { id: 'kyb-fl-unsupported', group: 'Know Your Business', label: 'Freelancer in an unsupported category', hint: 'National ID + mobile + code, then Not Eligible (details saved).', build: () => atKyb('kyb-fl-unsupported', { ...KYB_FL, group: 'fixture', sub: 'fixture-blocked' }) },
+  { id: 'kyb-fl-cr-required', group: 'Know Your Business', label: 'Freelancer in a CR-only category', hint: 'Identify + OTP, then Not Eligible: the activity requires a CR.', build: () => atKyb('kyb-fl-cr-required', { kind: 'FL_CERT', group: 'food', sub: 'food-cafe' }) },
+  { id: 'kyb-fl-offline', group: 'Know Your Business', label: 'Freelancer category online only, sells offline', hint: 'Identify + OTP, then Not Eligible (channel rule).', build: () => atKyb('kyb-fl-offline', { kind: 'FL_CERT', group: 'retail', sub: 'retail-electronics', channel: 'offline' }) },
 
   // Page 2 + routing
   { id: 'id-new-cr', group: 'Identify & routing', label: 'New registered business', hint: 'CR + mobile + owner / manager = Yes → existence check → OTP to the entered mobile.', build: () => atIdentify('id-new-cr', {}) },
   { id: 'id-new-fl', group: 'Identify & routing', label: 'New Freelancer', hint: 'National ID + mobile + IBAN linked = Yes → OTP.', build: () => atIdentify('id-new-fl', KYB_FL) },
-  { id: 'id-cr-not-owner', group: 'Identify & routing', label: 'Not an owner or manager', hint: 'Owner / manager = No → OTP → blocked with the reason. Delegation is out of V1.', build: () => atIdentify('id-cr-not-owner', {}, simWith(), 'no') },
-  { id: 'id-fl-iban-no', group: 'Identify & routing', label: 'Freelancer IBAN not linked', hint: 'IBAN linked = No → OTP → blocked with linkage instructions.', build: () => atIdentify('id-fl-iban-no', KYB_FL, simWith(), 'no') },
+  { id: 'id-unsupported-cr', group: 'Identify & routing', label: 'Unsupported category: registered business', hint: 'CR + mobile (no prerequisite question) → OTP → Not Eligible, details saved. No CR, Nafath or other paid check.', build: () => atIdentify('id-unsupported-cr', { group: 'fixture', sub: 'fixture-blocked' }) },
+  { id: 'id-unsupported-fl', group: 'Identify & routing', label: 'Unsupported category: Freelancer', hint: 'National ID + mobile → OTP → Not Eligible, details saved. No certificate or Nafath check.', build: () => atIdentify('id-unsupported-fl', { ...KYB_FL, group: 'fixture', sub: 'fixture-blocked' }) },
+  { id: 'id-cr-not-owner', group: 'Identify & routing', label: 'Not an owner or manager', hint: 'Owner / manager = No → OTP → Not Eligible with the reason. Delegation is out of V1.', build: () => atIdentify('id-cr-not-owner', {}, simWith(), 'no') },
+  { id: 'id-fl-iban-no', group: 'Identify & routing', label: 'Freelancer IBAN not linked', hint: 'IBAN linked = No → OTP → Not Eligible with linkage instructions.', build: () => atIdentify('id-fl-iban-no', KYB_FL, simWith(), 'no') },
   { id: 'id-incomplete', group: 'Identify & routing', label: 'Application already in progress', hint: 'Code goes to the REGISTERED mobile (•••••••123), not the entered one; then resume.', build: () => atIdentify('id-incomplete', {}, simWith({ existence: 'incomplete' })) },
   { id: 'id-submitted', group: 'Identify & routing', label: 'Application already submitted', hint: 'Registered-mobile code → Application Progress. Never Review or Contract.', build: () => atIdentify('id-submitted', {}, simWith({ existence: 'submitted' })) },
+  { id: 'id-not-eligible', group: 'Identify & routing', label: 'Saved as Not Eligible earlier', hint: 'Registered-mobile code → the Not Eligible confirmation (saved details). No new record.', build: () => atIdentify('id-not-eligible', {}, simWith({ existence: 'not_eligible' })) },
   { id: 'id-live', group: 'Identify & routing', label: 'Already a Madfu merchant', hint: 'Account-mobile code → merchant login. No application is created.', build: () => atIdentify('id-live', {}, simWith({ existence: 'live' })) },
   { id: 'id-throttled', group: 'Identify & routing', label: 'Too many requests', hint: 'Rate limit / bot challenge on Page 2 (simulated).', build: () => atIdentify('id-throttled', {}, simWith({ rateLimited: true })) },
   { id: 'otp-errors', group: 'Identify & routing', label: 'OTP errors', hint: 'Wrong codes, expiry, bounded resends.', build: () => { const s = submitIdentify(atIdentify('otp-errors', {})); return { ...s, app: { ...s.app, otp: { ...s.app.otp, status: 'incorrect', attemptsLeft: 2, code: '135790' } } }; } },
@@ -108,9 +113,9 @@ export const SCENARIOS: Scenario[] = [
   { id: 'cr-suspended', group: 'Registered business', label: 'CR suspended', hint: 'Same Sales recovery route.', build: () => runBusinessVerification(at('cr-suspended', 'CR', 'persons', simWith({}, { status: 'SUSPENDED' }))) },
   { id: 'cr-young', group: 'Registered business', label: 'CR 2 months old', hint: 'Continues: CR age is a risk attribute (Internal view), not a rejection.', build: () => at('cr-young', 'CR', 'persons', simWith({}, { ageMonths: 2 })) },
   { id: 'cr-multi', group: 'Registered business', label: 'Several CR activities, government category differs', hint: 'Declared café; registered consultancy + general trade: verified category = consultancy (pricing too).', build: () => at('cr-multi', 'CR', 'persons', simWith({}, { activities: ['ACT-7020', 'ACT-4719'] })) },
-  { id: 'cr-regulated', group: 'Registered business', label: 'Regulated registered activity', hint: 'A gold & jewellery activity blocks whatever was declared.', build: () => at('cr-regulated', 'CR', 'persons', simWith({}, { activities: ['ACT-5630', 'ACT-4777'] })) },
+  { id: 'cr-regulated', group: 'Registered business', label: 'Regulated registered activity', hint: 'A gold & jewellery activity → Not Eligible, whatever was declared.', build: () => at('cr-regulated', 'CR', 'persons', simWith({}, { activities: ['ACT-5630', 'ACT-4777'] })) },
   { id: 'cr-unavailable', group: 'Registered business', label: 'CR provider unavailable', hint: 'Bounded retries in this session; Save & exit; retries reset on resume.', build: () => at('cr-unavailable', 'CR', 'persons', simWith({}, { result: 'unavailable' })) },
-  { id: 'cr-no-owner', group: 'Registered business', label: 'No owner or manager on the CR', hint: 'Only a delegate and a company: the declaration is not confirmed → blocked.', build: () => at('cr-no-owner', 'CR', 'persons', simWith({ persons: 'none' })) },
+  { id: 'cr-no-owner', group: 'Registered business', label: 'No owner or manager on the CR', hint: 'Only a delegate and a company: the declaration is not confirmed → Not Eligible.', build: () => at('cr-no-owner', 'CR', 'persons', simWith({ persons: 'none' })) },
 
   // Mobile + Nafath
   { id: 'mm-match', group: 'Mobile & Nafath', label: 'Mobile matches the owner', hint: 'Send to Nafath: ownership check passes, Nafath request sent.', build: () => at('mm-match', 'CR', 'nafath') },
@@ -123,11 +128,11 @@ export const SCENARIOS: Scenario[] = [
   // Freelancer
   { id: 'fl-happy', group: 'Freelancer', label: 'Walk the Freelancer journey', hint: 'From Page 1 to Submit.', build: () => atKyb('fl-happy', KYB_FL) },
   { id: 'fl-nafath', group: 'Freelancer', label: 'Certificate pre-check, then Nafath', hint: 'Backend checks the certificate first (cost order); the applicant sees Nafath.', build: () => at('fl-nafath', 'FL_CERT', 'nafath') },
-  { id: 'fl-no-cert', group: 'Freelancer', label: 'No certificate found', hint: 'Stops before Nafath: certificate-required lead.', build: () => at('fl-no-cert', 'FL_CERT', 'nafath', simWith({ certificates: 'none' })) },
+  { id: 'fl-no-cert', group: 'Freelancer', label: 'No certificate found', hint: 'Stops before Nafath: Not Eligible (no Nafath cost).', build: () => at('fl-no-cert', 'FL_CERT', 'nafath', simWith({ certificates: 'none' })) },
   { id: 'fl-cert-unavailable', group: 'Freelancer', label: 'Certificate service unavailable', hint: 'Retry later; no Nafath call yet.', build: () => at('fl-cert-unavailable', 'FL_CERT', 'nafath', simWith({ certificates: 'unavailable' })) },
   { id: 'fl-mismatch', group: 'Freelancer', label: 'Mobile not registered to the National ID', hint: 'Same mobile correction as for owners.', build: () => at('fl-mismatch', 'FL_CERT', 'nafath', simWith({ mobileMatch: ['mismatch', 'match'] })) },
   { id: 'fl-certs-multi', group: 'Freelancer', label: 'Several certificates', hint: 'Choose one; its activity becomes the verified category.', build: () => at('fl-certs-multi', 'FL_CERT', 'certificates', simWith({ certificates: 'multiple' }), freshCerts) },
-  { id: 'fl-cert-cr-only', group: 'Freelancer', label: 'Certificate activity requires a CR', hint: 'Blocked after confirmation.', build: () => at('fl-cert-cr-only', 'FL_CERT', 'certificates', simWith({ certificates: 'mismatch' }), freshCerts) },
+  { id: 'fl-cert-cr-only', group: 'Freelancer', label: 'Certificate activity requires a CR', hint: 'Not Eligible after confirmation.', build: () => at('fl-cert-cr-only', 'FL_CERT', 'certificates', simWith({ certificates: 'mismatch' }), freshCerts) },
 
   // Business Details
   { id: 'biz-cr-both', group: 'Business Details', label: 'Registered business: website + Google Maps', hint: 'No IBAN, VAT or branch count for a registered business.', build: () => at('biz-cr-both', 'CR', 'business') },
@@ -158,8 +163,9 @@ export const scenarioById = (id: string | null) => SCENARIOS.find((s) => s.id ==
 export const JOURNEY_PRESETS: Array<{ id: string; label: string; hint: string }> = [
   { id: 'cr-happy', label: 'Happy path — registered business', hint: 'Page 1 filled in. Check eligibility, then code 246810.' },
   { id: 'fl-happy', label: 'Happy path — Freelancer', hint: 'Freelancer with a certificate, from Page 1.' },
-  { id: 'kyb-cr-sales', label: 'Sales lead', hint: 'Registered business above SAR 20M: Page 2 + code, then the Sales thank-you.' },
-  { id: 'kyb-fl-no-cert', label: 'Freelancer without certificate', hint: 'Lead route, no verification.' },
+  { id: 'kyb-cr-high', label: 'Registered business above SAR 20M', hint: 'Self-onboarding like any eligible business (no Sales route).' },
+  { id: 'kyb-fl-no-cert', label: 'Freelancer without certificate', hint: 'Not Eligible on Page 1: no Identify, no OTP.' },
+  { id: 'kyb-unsupported', label: 'Unsupported category', hint: 'Identify + code, then Not Eligible (details saved).' },
   { id: 'id-incomplete', label: 'Existing incomplete application', hint: 'Code goes to the registered mobile; then resume.' },
   { id: 'id-submitted', label: 'Submitted application', hint: 'Registered-mobile code → Application Progress.' },
   { id: 'id-live', label: 'Live merchant', hint: 'Account-mobile code → login.' },

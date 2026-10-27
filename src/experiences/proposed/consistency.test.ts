@@ -4,10 +4,12 @@
  * behaviour the 2026-10-27 decisions removed.
  */
 import { describe, expect, it } from 'vitest';
-import { ALL_BOARDS, DETAILED_BOARD, NODE_KIND_LABEL, REUSE_NOTE, SIMPLE_BOARD, routeEdge } from './model/boards';
+import { ALL_BOARDS, DETAILED_BOARD, NODE_KIND_LABEL, routeEdge } from './model/boards';
+import { BOARD_ARROWS, BOARD_BOXES, BOARD_GEOMETRY } from './model/masterBoard';
 import { STAGES } from './model/config';
-import { OUTCOME_COPY } from './model/copy';
+import { NOT_ELIGIBLE_SAVED_COPY, OUTCOME_COPY, REASON_USER_COPY, STATUS_LABEL } from './model/copy';
 import { CONFIRMED_DECISIONS, DECISION_TABLES, OPEN_ITEMS } from './model/decisions';
+import { ELIGIBILITY_RULES } from './model/eligibility';
 import { renderJourneyDoc } from './model/docs';
 import { GOV_RULES } from './model/government';
 import { PAGE_SCENARIOS } from './model/pageScenarios';
@@ -18,7 +20,7 @@ import { STEP_VIEW } from './ProposedPage';
 
 const STEP_IDS = Object.keys(STEP_VIEW) as StepId[];
 const OUTCOMES = Object.keys(OUTCOME_COPY) as OutcomeKind[];
-const boardSteps = new Set(ALL_BOARDS.flatMap((m) => m.nodes.map((n) => n.step).filter(Boolean)));
+const boardSteps = new Set([...ALL_BOARDS.flatMap((m) => m.nodes.map((n) => n.step)), ...BOARD_BOXES.map((b) => b.step)].filter(Boolean));
 const boardOutcomes = new Set(ALL_BOARDS.flatMap((m) => m.nodes.map((n) => n.outcome).filter(Boolean)));
 const boardText = (m = ALL_BOARDS) => m.flatMap((b) => [b.caption, ...b.nodes.map((n) => `${n.label} ${n.detail ?? ''}`)]).join(' | ');
 
@@ -29,11 +31,46 @@ describe('one journey model across prototype, boards, rules and docs', () => {
     expect(Object.keys(PAGE_SCENARIOS).sort()).toEqual([...STEP_IDS].sort());
   });
 
-  it('the Master Board shows the new top-level flow and the routing fan-out', () => {
-    const text = boardText([SIMPLE_BOARD]);
-    for (const s of ['Know Your Business', 'Identifier + mobile', 'Existing check', 'OTP', 'Routing', 'Sales lead', 'Blocked', 'New CR', 'New Freelancer', 'Resume', 'Application Progress', 'login']) expect(text).toContain(s);
-    for (const s of ['backend only, before Nafath', 'Mobile ↔ National ID → Nafath', 'no CR IBAN, VAT, branches', 'no plan selection', 'Sales recovery']) expect(text).toContain(s);
-    expect(text).toContain(REUSE_NOTE);
+  it('the Master Board is a visual screen flow: entry, routing fan-out and both self-onboarding paths', () => {
+    const row = (r: number) => BOARD_BOXES.filter((b) => b.row === r).sort((a, b) => a.col - b.col).map((b) => b.title);
+    expect(row(0)).toEqual(['Not Eligible', 'Know Your Business', 'Identify', 'OTP', 'Not Eligible · Details Received', 'Resume Application', 'Application Progress', 'Login']);
+    expect(row(1)).toEqual(['Registered Business', 'Owner / Manager', 'Nafath', 'Business Details', 'Offer', 'Review', 'Contract', 'Submitted']);
+    expect(row(2)).toEqual(['Freelancer', 'Nafath', 'Certificate', 'Business Details + IBAN', 'Offer', 'Review', 'Contract', 'Submitted']);
+    const labels = BOARD_ARROWS.flatMap((a) => a.pills ?? []);
+    expect(labels.filter((p) => p.kind === 'label').map((p) => p.text).sort()).toEqual(['Freelancer without Certificate', 'Live', 'New', 'Not Eligible category', 'Registered Business / Freelancer with Certificate', 'Resume', 'Submitted']);
+    expect(labels.filter((p) => p.kind === 'check').map((p) => p.text).sort()).toEqual(['CR verification', 'Certificate check', 'Mobile match', 'Mobile match']);
+    // Simple and visual: short captions, no technical vocabulary.
+    const text = BOARD_BOXES.map((b) => `${b.title} ${b.caption ?? ''}`).join(' | ') + labels.map((p) => p.text).join(' | ');
+    expect(text).not.toMatch(/sales|lead|blocked|API|adapter|KYB-R|rule id|fingerprint|ledger/i);
+    for (const b of BOARD_BOXES) expect((b.caption ?? '').split(' ').length, b.id).toBeLessThanOrEqual(8);
+  });
+
+  it('every Master Board box shows the real screen it names (built with the prototype transitions)', () => {
+    for (const b of BOARD_BOXES.filter((x) => x.tone !== 'lane')) {
+      const app = b.state!().app;
+      expect(app.step, b.id).toBe(b.step);
+      if (b.outcome) expect(app.outcome, b.id).toBe(b.outcome);
+    }
+    expect(BOARD_BOXES.find((b) => b.id === 'fl-no-cert')!.state!().app.id).toBeNull();
+    expect(BOARD_BOXES.find((b) => b.id === 'not-eligible')!.state!().app).toMatchObject({ status: 'NOT_ELIGIBLE', outcomeReason: 'CATEGORY_NOT_SUPPORTED' });
+  });
+
+  it('Master Board geometry: boxes inside the canvas and apart; every arrow starts and ends on a box edge', () => {
+    const G = BOARD_GEOMETRY;
+    const rect = (b: (typeof BOARD_BOXES)[number]) => ({ x: G.colX(b.col), y: G.rowY[b.row], w: G.boxW, h: G.boxH });
+    const cells = BOARD_BOXES.map((b) => `${b.col}:${b.row}`);
+    expect(new Set(cells).size).toBe(cells.length);
+    for (const b of BOARD_BOXES) { const r = rect(b); expect(r.x + r.w, b.id).toBeLessThanOrEqual(G.width); expect(r.y + r.h, b.id).toBeLessThanOrEqual(G.height); }
+    const onEdge = (p: { x: number; y: number }) => BOARD_BOXES.some((b) => {
+      const r = rect(b);
+      const inX = p.x >= r.x && p.x <= r.x + r.w;
+      const inY = p.y >= r.y && p.y <= r.y + r.h;
+      return (inY && (p.x === r.x || p.x === r.x + r.w)) || (inX && (p.y === r.y || p.y === r.y + r.h));
+    });
+    for (const a of BOARD_ARROWS) {
+      expect(onEdge(a.points.at(-1)!), `${a.id} end`).toBe(true);
+      for (let i = 1; i < a.points.length; i++) expect(a.points[i].x === a.points[i - 1].x || a.points[i].y === a.points[i - 1].y, `${a.id} orthogonal`).toBe(true);
+    }
   });
 
   it('every prototype screen and every outcome appears on a board', () => {
@@ -74,6 +111,31 @@ describe('one journey model across prototype, boards, rules and docs', () => {
 
   it('every scenario starts on a screen the boards know', () => {
     for (const sc of SCENARIOS) expect(boardSteps.has(sc.build().app.step), sc.id).toBe(true);
+  });
+});
+
+describe('eligibility: only Eligible / Not Eligible, consistent terminology', () => {
+  it('no Sales-lead, Blocked or revenue routing anywhere in the model', () => {
+    expect(new Set(ELIGIBILITY_RULES.map((r) => r.result))).toEqual(new Set(['ELIGIBLE', 'NOT_ELIGIBLE']));
+    expect(ELIGIBILITY_RULES.map((r) => r.reason)).not.toEqual(expect.arrayContaining(['REVENUE_ABOVE_BAND']));
+    expect(Object.keys(STATUS_LABEL)).not.toEqual(expect.arrayContaining(['SALES_LEAD']));
+    expect(Object.keys(STATUS_LABEL)).not.toContain('BLOCKED');
+    expect(Object.keys(OUTCOME_COPY).sort()).toEqual(['NOT_ELIGIBLE', 'PAUSED_CR', 'SUBMITTED', 'SUBMITTED_MANUAL']);
+    expect(STEP_IDS).not.toContain('lead' as StepId);
+  });
+
+  it('merchant-facing copy says "Not Eligible", never Blocked / Blacklisted / Rejected / Sales lead', () => {
+    const copy = [...Object.values(OUTCOME_COPY).flatMap((c) => [c.title, c.body]), ...Object.values(REASON_USER_COPY).flatMap((c) => [c!.title ?? '', c!.text]), NOT_ELIGIBLE_SAVED_COPY.title, NOT_ELIGIBLE_SAVED_COPY.body].join(' | ');
+    expect(copy).not.toMatch(/blocked|blacklist|rejected|sales lead/i);
+    expect(OUTCOME_COPY.NOT_ELIGIBLE.title).toMatch(/Not eligible/i);
+    expect(`${NOT_ELIGIBLE_SAVED_COPY.title} ${REASON_USER_COPY.CATEGORY_NOT_SUPPORTED!.text} ${NOT_ELIGIBLE_SAVED_COPY.body}`).toBe('Thank you. We’ve received your details. This business activity is currently not eligible for Madfu onboarding. We may contact you if eligibility changes in the future.');
+  });
+
+  it('boards label every stop as Not Eligible (the paused CR route keeps its Sales follow-up)', () => {
+    const outcomes = ALL_BOARDS.flatMap((m) => m.nodes.filter((n) => n.outcome === 'NOT_ELIGIBLE'));
+    expect(outcomes.length).toBeGreaterThanOrEqual(6);
+    for (const n of outcomes) expect(n.label).toMatch(/Not Eligible/);
+    expect(ALL_BOARDS.flatMap((m) => m.nodes.filter((n) => n.kind !== 'note').map((n) => n.label)).join(' | ')).not.toMatch(/\bBlocked\b|Sales lead/);
   });
 });
 

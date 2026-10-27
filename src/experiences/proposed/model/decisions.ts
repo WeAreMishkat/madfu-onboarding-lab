@@ -21,7 +21,11 @@ export interface Table { id: string; title: string; note?: string; head: string[
 
 export const CONFIRMED_DECISIONS: string[] = [
   'Know Your Business (Page 1) asks only applicant type, category, subcategory, annual revenue and sales channel — no website or Google Maps link.',
-  'Identifier + mobile are Page 2, with one prerequisite question for self-onboarding.',
+  'Initial eligibility has only two outcomes: Eligible and Not Eligible. There is no Sales-lead, Blocked or manual-review route at initial eligibility.',
+  `Annual revenue is still collected on Page 1 but never routes: every band (below SAR ${REVENUE_RULE.lowerSar.toLocaleString('en-US')}, SAR ${REVENUE_RULE.lowerSar.toLocaleString('en-US')}–${REVENUE_RULE.upperSar.toLocaleString('en-US')}, above SAR ${REVENUE_RULE.upperSar.toLocaleString('en-US')}) self-onboards when otherwise eligible. Revenue is a risk input only.`,
+  'A Freelancer without a Freelancer Certificate sees Not Eligible directly on Page 1: no Identify page, no National ID, no OTP.',
+  'An unsupported (blacklisted) category or activity continues through Identify + OTP so a verified contact is kept; after the OTP the applicant sees Not Eligible ("We’ve received your details") — no CR, Nafath, certificate, banking, offer or contract, and no paid verification after the OTP.',
+  'Only Registered Businesses and Freelancers with a certificate reach Identify. Identifier + mobile are Page 2, with one prerequisite question for eligible applicants.',
   'An internal existence check runs before any OTP; it calls no provider.',
   'Existing applications and merchant accounts are opened only by an OTP to the REGISTERED mobile (last three digits shown); the newly entered mobile is never used for them.',
   'No automatic account / application takeover, no access-request and no replacement-mobile workflow in V1.',
@@ -30,8 +34,8 @@ export const CONFIRMED_DECISIONS: string[] = [
   `Freelancers declare "${PREREQUISITE_QUESTION.FL_CERT}"; No stops self-onboarding before any paid check. The linkage is still verified technically later.`,
   'The Freelancer Certificate existence check runs before Nafath when provider / compliance permits (rule flag); the applicant still sees Nafath → certificate.',
   'Mobile ↔ National ID ownership is checked before every Nafath request; on a mismatch the mobile can be corrected with a new OTP, without restarting.',
-  'Sales leads stop after OTP: no CR, Nafath, banking or contract; the lead is persisted.',
-  'Blocked outcomes show a personalised reason per rule; internal scoring is never exposed.',
+  '"Not Eligible" is the only merchant-facing term (never Blocked, Blacklisted or Rejected); each Not Eligible page shows a personalised reason per rule; reason codes and internal scoring are never exposed.',
+  'A returning applicant with a saved Not Eligible record gets the code on the registered mobile, then the Not Eligible confirmation (saved details).',
   'After retrieval, the government CR activity (or certificate activity) is the source of truth for the category; the declared category cannot be edited to bypass it.',
   'Commercial pricing uses the verified, mapped category.',
   'Multiple CR activities are supported in the data model; many activities can map to one Madfu subcategory.',
@@ -59,39 +63,41 @@ const stagesTable: Table = {
   rows: STAGES.map((s) => [String(s.n), s.label, s.steps.join(' · ')])
 };
 
+const NOT_ELIGIBLE_AT_LABEL = { KYB: 'Immediately on Page 1 (no Identify, no OTP)', AFTER_OTP: 'After Identify + OTP (details saved)' };
 const eligibilityRules: Table = {
-  id: 'eligibility', title: `Page 1 preliminary eligibility rules (ordered, ${ELIGIBILITY_RULESET})`, head: ['Rule', 'Condition', 'Result', 'Reason code', 'Type'],
-  rows: ELIGIBILITY_RULES.map((r) => [r.id, r.description, r.result, r.reason, r.kind]),
-  note: `First matching rule wins. Internal, before any external call. Revenue thresholds are configuration (SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} / SAR ${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')}). Production Eligibility Matrix: PRODUCT TASK.`
+  id: 'eligibility', title: `Page 1 preliminary eligibility rules (ordered, ${ELIGIBILITY_RULESET})`, head: ['Rule', 'Condition', 'Result', 'Not Eligible shown', 'Reason code', 'Type'],
+  rows: ELIGIBILITY_RULES.map((r) => [r.id, r.description, r.result, r.notEligibleAt ? NOT_ELIGIBLE_AT_LABEL[r.notEligibleAt] : '—', r.reason, r.kind]),
+  note: `First matching rule wins. Internal, before any external call. Only two results: ELIGIBLE / NOT_ELIGIBLE. Revenue (bands at SAR ${REVENUE_RULE.lowerSar.toLocaleString('en-US')} / SAR ${REVENUE_RULE.upperSar.toLocaleString('en-US')}) is collected but no rule reads it — it is a risk input. Production Eligibility Matrix: PRODUCT TASK.`
 };
 
 const catalogue: Table = {
   id: 'catalogue', title: 'Category rules (synthetic fixture catalogue)', head: ['Madfu subcategory', 'Registered business', 'Freelancer'],
   rows: CATEGORIES.flatMap((g) => g.subs.map((s) => [`${g.label} › ${s.label}`, CATEGORY_RULE_LABEL[s.rules.CR], CATEGORY_RULE_LABEL[s.rules.FL]])),
-  note: 'Categories are allowed or blocked; there is no manual-review category route. Example only (e.g. gold & jewellery).'
+  note: 'A category is allowed or not supported (Not Eligible); there is no manual-review category route. Example only (e.g. gold & jewellery).'
 };
 
 const routingTable: Table = {
-  id: 'routing', title: 'Page 2 → existence check → OTP → routing', head: ['Existence (internal)', 'OTP sent to', 'After the code'],
+  id: 'routing', title: 'Page 1 → Page 2 → existence check → OTP → routing', head: ['Situation', 'OTP sent to', 'After the code'],
   rows: [
-    ['New identifier, Page 1 = Sales lead', 'Entered mobile', 'Lead persisted → "Thank you. Our Sales team will contact you." (no further data)'],
-    ['New identifier, Freelancer without certificate', 'Entered mobile', 'Lead persisted → certificate-required outcome'],
-    ['New identifier, prerequisite = No', 'Entered mobile', 'Blocked with a personalised reason (owner / manager, or IBAN linkage)'],
-    ['New identifier, registered business', 'Entered mobile', 'Application created (DRAFT) → Business verification'],
-    ['New identifier, Freelancer with certificate', 'Entered mobile', 'Application created (DRAFT) → certificate pre-check → Nafath'],
+    ['Freelancer without certificate (Page 1)', '— (no Identify, no OTP)', 'Not Eligible immediately, personalised reason'],
+    ['New identifier, unsupported category / activity', 'Entered mobile', 'Details saved (verified contact) → Not Eligible "We’ve received your details"; no paid check'],
+    ['New identifier, eligible, prerequisite = No', 'Entered mobile', 'Not Eligible with a personalised reason (owner / manager, or IBAN linkage)'],
+    ['New identifier, eligible registered business (any revenue band)', 'Entered mobile', 'Application created (DRAFT) → Business verification'],
+    ['New identifier, eligible Freelancer with certificate (any revenue band)', 'Entered mobile', 'Application created (DRAFT) → certificate pre-check → Nafath'],
     ['Incomplete application (DRAFT)', 'Registered application mobile (•••••••123)', 'Resume at the first unfinished stage; valid checks reused'],
     ['Submitted, not live', 'Registered application mobile', 'Application Progress (status only)'],
+    ['Saved Not Eligible record', 'Registered mobile', 'Not Eligible confirmation (saved details)'],
     ['Paused (CR expired / suspended)', 'Registered application mobile', 'Saved; Sales will help you continue'],
     ['Live merchant', 'Registered account mobile', 'Merchant login; no application created'],
     ['Code not completed', '—', 'No access; nothing exposed; no new application']
   ],
-  note: `Throttled after ${LIMITS.identifyChecksPerSession} Page-2 submissions per session (simulated rate limit / bot challenge).`
+  note: `There is no Sales-lead route. Throttled after ${LIMITS.identifyChecksPerSession} Page-2 submissions per session (simulated rate limit / bot challenge).`
 };
 
-const LIFECYCLE: Lifecycle[] = ['QUALIFICATION', 'OTP_PENDING', 'DRAFT', 'SALES_LEAD', 'BLOCKED', 'PAUSED_CR', 'SUBMITTED', 'UNDER_REVIEW', 'ACTION_REQUIRED', 'APPROVED', 'UNABLE_TO_PROCEED', 'LIVE'];
+const LIFECYCLE: Lifecycle[] = ['QUALIFICATION', 'OTP_PENDING', 'DRAFT', 'NOT_ELIGIBLE', 'PAUSED_CR', 'SUBMITTED', 'UNDER_REVIEW', 'ACTION_REQUIRED', 'APPROVED', 'UNABLE_TO_PROCEED', 'LIVE'];
 const LIFECYCLE_ROUTE: Record<Lifecycle, string> = {
-  QUALIFICATION: 'Page 1 / Page 2 (nothing persisted)', OTP_PENDING: 'OTP screen', DRAFT: 'First unfinished stage', SALES_LEAD: 'Lead outcome',
-  BLOCKED: 'Blocked outcome', PAUSED_CR: 'Sales / manual follow-up message', SUBMITTED: 'Application Progress', UNDER_REVIEW: 'Application Progress',
+  QUALIFICATION: 'Page 1 / Page 2 (nothing persisted)', OTP_PENDING: 'OTP screen', DRAFT: 'First unfinished stage',
+  NOT_ELIGIBLE: 'Not Eligible confirmation (saved details)', PAUSED_CR: 'Sales / manual follow-up message', SUBMITTED: 'Application Progress', UNDER_REVIEW: 'Application Progress',
   ACTION_REQUIRED: 'Application Progress', APPROVED: 'Application Progress', UNABLE_TO_PROCEED: 'Application Progress', LIVE: 'Merchant login'
 };
 const lifecycleTable: Table = {
@@ -117,13 +123,13 @@ const govTable: Table = {
     ['National Address', 'Missing / expired', 'continue + flag'],
     ['Legal entity', GOV_RULES.additionalDocumentsFor.join(', '), 'continue + "additional documents required" (collected later)']
   ],
-  note: 'RESTRICTED follows the Sales route provisionally; the hard-block inventory is open.'
+  note: 'RESTRICTED follows the Sales route provisionally; the Not Eligible inventory is open.'
 };
 
 const hardBlockTable: Table = {
-  id: 'hard-blocks', title: 'Hard blocks (rules) — separate from the risk score', head: ['Reason', 'Where', 'Source', 'Route'],
+  id: 'hard-blocks', title: 'Not Eligible rules (and the paused CR route) — separate from the risk score', head: ['Reason', 'Where', 'Source', 'Route'],
   rows: HARD_BLOCKS.map((h) => [h.reason, h.where, h.source, h.route]),
-  note: 'A hard regulatory or business rule is never converted into a score to let a merchant continue.'
+  note: 'A regulatory or business Not Eligible rule is never converted into a score to let a merchant continue. Revenue is never a Not Eligible rule.'
 };
 
 const riskTable: Table = {
@@ -150,9 +156,10 @@ const costTable: Table = {
   id: 'cost', title: 'External-call order and cost assumptions', head: ['Applicant', 'Order of paid calls (backend)', 'What the applicant sees'],
   rows: [
     ['Before the first OTP', 'None (eligibility and existence checks are internal)', 'Page 1 → Page 2 → code'],
+    ['Freelancer without certificate', 'None', 'Page 1 → Not Eligible'],
     ['Registered business', CALL_ORDER.CR.join(' → '), 'Code → owner / manager → Send to Nafath'],
     ['Freelancer', CALL_ORDER.FL_CERT.join(' → '), 'Code → Nafath → certificate → IBAN'],
-    ['Sales lead / blocked', 'OTP only', 'Code → outcome'],
+    ['Unsupported category / prerequisite No', 'OTP only', 'Code → Not Eligible (details saved)'],
     ['Expired / suspended CR', 'OTP → CR data (then stop)', 'Code → saved, Sales follow-up'],
     ['Ordinary resume', 'OTP only (valid checks reused)', 'Code → first unfinished stage']
   ],
@@ -234,18 +241,18 @@ export interface OpenItem {
 }
 
 export const OPEN_ITEMS: OpenItem[] = [
-  { id: 'OD-1', type: 'PRODUCT TASK', title: 'Exact Eligibility Matrix', detail: 'Category · subcategory · applicant type · channel · revenue band · result · CR / certificate required · regulatory restriction · reason code · rule version. Prototype: fixture catalogue.' },
+  { id: 'OD-1', type: 'PRODUCT TASK', title: 'Exact Eligibility Matrix', detail: 'Category · subcategory · applicant type · channel · result (Eligible / Not Eligible) · CR / certificate required · regulatory restriction · personalised reason · rule version. Revenue does not decide eligibility. Prototype: fixture catalogue.' },
   { id: 'OD-2', type: 'PRODUCT TASK', title: 'Exact government activity → category mapping', detail: 'Every activity code → Madfu subcategory (many-to-one). Prototype: synthetic codes.' },
   { id: 'OD-3', type: 'PRODUCT / COMPLIANCE DECISION', title: 'Multi-activity reconciliation behaviour', detail: 'Which activity wins (primary, any, most restrictive), and what happens when several map to different categories. Prototype: demo order (regulated blocks → match confirms → primary reclassifies → unmapped keeps the declaration).' },
   { id: 'OD-4', type: 'RISK DECISION', title: 'Risk scoring weights / formula', detail: 'Factors and weights (CR age, status, revenue, category, fraud, credit, compliance). Prototype: synthetic demo weights.' },
-  { id: 'OD-5', type: 'PRODUCT / COMPLIANCE DECISION', title: 'Hard-block inventory', detail: 'The complete list of regulatory / business conditions that cannot continue, incl. how a restricted CR is handled (prototype: Sales route, provisional).' },
+  { id: 'OD-5', type: 'PRODUCT / COMPLIANCE DECISION', title: 'Not Eligible inventory', detail: 'The complete list of regulatory / business conditions that cannot continue, incl. how a restricted CR is handled (prototype: Sales route, provisional).' },
   { id: 'OD-6', type: 'RISK DECISION', title: 'Low / Medium / High thresholds and their effect', detail: 'Thresholds and what each level changes (review depth, limits, pricing). Prototype: demo thresholds, no effect on the journey.' },
   { id: 'OD-7', type: 'PROVIDER / COMPLIANCE DECISION', title: 'Certificate lookup before Nafath', detail: `Whether the freelance platform / privacy rules permit an existence check by National ID before Nafath. Prototype rule flag flCertificatePrecheckBeforeNafath = ${RULE_FLAGS.flCertificatePrecheckBeforeNafath}.` },
   { id: 'OD-8', type: 'PROVIDER / COMPLIANCE DECISION', title: 'Mobile ↔ National ID provider / service behaviour', detail: 'Which service confirms mobile ownership, its cost, latency, coverage (e.g. prepaid / non-Saudi numbers) and reuse. Prototype: simulated service.' },
   { id: 'OD-9', type: 'COMPLIANCE DECISION', title: 'Behaviour after repeated mobile mismatch', detail: `Prototype: ${LIMITS.mobileMatchChecks} checks per application, then the verification step pauses with progress saved. Whether this escalates, blocks or routes to manual is open.` },
   { id: 'OD-10', type: 'PRODUCT TASK', title: 'Exact Pricing & Commission Matrix', detail: 'Verified category / subcategory → standard commission; tiers; effective dates. Prototype: synthetic.' },
   { id: 'OD-11', type: 'PRODUCT/COMMERCIAL DECISION', title: 'Evidence requested for a better rate', detail: 'Which documents or data qualify a rate review, and how an improved rate is applied after the contract. Prototype: two placeholder documents.' },
-  { id: 'OD-12', type: 'LEGAL DECISION', title: 'Final Freelancer IBAN regulatory / legal wording', detail: 'The Page-2 question, the blocked message and the linkage requirement wording.' },
+  { id: 'OD-12', type: 'LEGAL DECISION', title: 'Final Freelancer IBAN regulatory / legal wording', detail: 'The Page-2 question, the Not Eligible message and the linkage requirement wording.' },
   { id: 'OD-13', type: 'PRODUCT/ENGINEERING DECISION', title: 'Freshness rules by verification / result', detail: 'How long CR data, people, mobile match, Nafath, certificate and IBAN results stay valid. Prototype: reusable until invalidated; negative results per NEGATIVE_POLICY.' },
   { id: 'OD-14', type: 'OPERATIONS DECISION', title: 'Sales / manual recovery workflow after an expired / suspended CR', detail: 'Who owns it, how the CR is re-checked after correction (prototype: one controlled re-check by Sales), and how the merchant continues.' },
   { id: 'OD-15', type: 'OPERATIONS DECISION', title: 'Final application status lifecycle / SLA', detail: 'Statuses after submission (prototype: Submitted, Under review, Action required, Approved, Unable to proceed) and any SLA. None invented.' },
@@ -253,7 +260,8 @@ export const OPEN_ITEMS: OpenItem[] = [
 ];
 
 export const OTHER_OPEN_POINTS: string[] = [
-  `Exact treatment of SAR ${REVENUE_RULE.selfServiceFromSar.toLocaleString('en-US')} and SAR ${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')} (prototype: inside the self-service band; above SAR ${REVENUE_RULE.salesAboveSar.toLocaleString('en-US')} → Sales).`,
+  `Exact revenue band boundaries at SAR ${REVENUE_RULE.lowerSar.toLocaleString('en-US')} and SAR ${REVENUE_RULE.upperSar.toLocaleString('en-US')} and their risk weights (revenue no longer routes to Sales).`,
+  'How Madfu contacts saved Not Eligible records when a category becomes supported, and whether such a record can then continue online (prototype: re-entry shows the Not Eligible confirmation).',
   'Providers behind CR data, associated parties, mobile ownership, certificates, IBAN linkage and the contract (prototype: neutral simulated adapters).',
   'Which additional documents non-Saudi entities need, and when operations collect them.',
   'Payout IBAN for registered businesses: collected at activation in the Merchant Portal (not built here).'

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PAGE_SCENARIOS, pageScenarios } from './pageScenarios';
 import { scenarioById } from './scenarios';
-import { runBusinessVerification, runCertificatePrecheck, submitIdentify } from './state';
+import { runBusinessVerification, runCertificatePrecheck, submitIdentify, submitKyb } from './state';
 import type { ProposedState, StepId } from './types';
 import { callsSince } from './verifications';
 
@@ -32,15 +32,25 @@ describe('Page Scenarios are page-specific', () => {
     for (const step of Object.keys(SAMPLE) as StepId[]) expect(PAGE_SCENARIOS[step], step).toBeDefined();
   });
 
-  it('Page 1 has eligibility results only — no website or Maps scenarios', () => {
+  it('Page 1 shows the four eligibility cases only — no Sales, revenue-routing, website or Maps scenarios', () => {
     const l = labels(SAMPLE.kyb());
-    expect(l).toEqual(expect.arrayContaining(['Self-onboarding (registered business)', 'Sales lead (above SAR 20M)', 'Blacklisted category', 'Freelancer without certificate']));
-    expect(l.some((x) => /website|maps|url/i.test(x))).toBe(false);
+    expect(l).toEqual(['Eligible Registered Business', 'Eligible Freelancer', 'Freelancer without Certificate → Not Eligible', 'Unsupported Category → Identify / OTP → Not Eligible']);
+    expect(l.some((x) => /website|maps|url|sales|lead|blocked|SAR/i.test(x))).toBe(false);
+  });
+
+  it('Page 1 options run through the real eligibility: no-certificate stops at once, unsupported continues to Identify', () => {
+    const run = (label: string) => submitKyb(pageScenarios(SAMPLE.kyb()).groups[0].options.find((o) => o.label === label)!.run(SAMPLE.kyb()));
+    expect(run('Eligible Registered Business').app.step).toBe('identify');
+    expect(run('Eligible Freelancer').app.step).toBe('identify');
+    expect(run('Freelancer without Certificate → Not Eligible').app).toMatchObject({ step: 'outcome', outcome: 'NOT_ELIGIBLE' });
+    const unsupported = run('Unsupported Category → Identify / OTP → Not Eligible');
+    expect(unsupported.app).toMatchObject({ step: 'identify', outcome: null });
+    expect(unsupported.app.eligibility?.result).toBe('NOT_ELIGIBLE');
   });
 
   it('Page 2 shows the record lookup, the declaration and the abuse control', () => {
     const l = labels(SAMPLE.identify());
-    expect(l).toEqual(expect.arrayContaining(['New applicant', 'Application already in progress', 'Application already submitted', 'Already a Madfu merchant', 'Too many requests (rate limit)']));
+    expect(l).toEqual(expect.arrayContaining(['New applicant', 'Application already in progress', 'Application already submitted', 'Already a Madfu merchant', 'Saved as Not Eligible earlier', 'Too many requests (rate limit)']));
     expect(titles(SAMPLE.identify())).toContain('Owner or manager on the CR?');
     expect(titles(at('id-new-fl'))).toContain('IBAN linked to the certificate?');
   });
@@ -91,8 +101,8 @@ describe('Page Scenarios are page-specific', () => {
     const run = (s: ProposedState, label: string) => pageScenarios(s).groups.flatMap((g) => g.options).find((o) => o.label === label)!.run(s);
     const expired = run(SAMPLE.persons(), 'Expired → saved + Sales');
     expect(expired.app.status).toBe('PAUSED_CR');
-    const pre = run(runCertificatePrecheck(at('fl-nafath')), 'No certificate → lead, no Nafath');
-    expect(pre.app.outcome).toBe('FL_CERT_REQUIRED');
+    const pre = run(runCertificatePrecheck(at('fl-nafath')), 'No certificate → Not Eligible, no Nafath');
+    expect(pre.app.outcome).toBe('NOT_ELIGIBLE');
     expect(callsSince(pre.app, 0).map((c) => c.check)).not.toContain('NAFATH');
     const mm = run(SAMPLE.nafath(), 'Mismatch, then the corrected mobile matches');
     const answered = pageScenarios(mm).groups.flatMap((g) => g.options).find((o) => o.label === 'Verified')!.run(mm);

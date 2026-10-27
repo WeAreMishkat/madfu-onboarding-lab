@@ -16,7 +16,7 @@
 /* ------------------------------------------------------------------ Stage 1: Know Your Business */
 
 export type ApplicantKind = 'CR' | 'FL_CERT' | 'FL_NO_CERT';
-export type Revenue = 'BELOW_100K' | 'SELF_SERVICE_BAND' | 'ABOVE_20M';
+export type Revenue = 'BELOW_100K' | 'MID_BAND' | 'ABOVE_20M';
 export type Channel = 'online' | 'offline' | 'both';
 
 /** Page 1 only: no URL, no identity, no mobile. The category is a preliminary declaration. */
@@ -28,8 +28,18 @@ export interface Kyb {
   channel: Channel | null;
 }
 
-/** Preliminary routing from Page 1. Categories are allowed or blocked; there is no manual-review route. */
-export type EligibilityResult = 'SELF_ONBOARDING' | 'SALES_LEAD' | 'BLOCKED';
+/**
+ * Eligibility has exactly two top-level outcomes. Revenue never routes: every revenue band can
+ * self-onboard when otherwise eligible (revenue is a risk input only).
+ */
+export type EligibilityResult = 'ELIGIBLE' | 'NOT_ELIGIBLE';
+
+/**
+ * When a NOT_ELIGIBLE result is shown. 'KYB' = immediately on Page 1 (Freelancer without certificate:
+ * no identifier, mobile or OTP). 'AFTER_OTP' = the applicant continues to Identify + OTP so Madfu keeps
+ * a verified contact, then sees Not Eligible (unsupported category / activity). No paid check runs.
+ */
+export type NotEligibleAt = 'KYB' | 'AFTER_OTP';
 
 export type ReasonCode =
   | 'OK'
@@ -39,8 +49,6 @@ export type ReasonCode =
   | 'CHANNEL_NOT_SUPPORTED'
   | 'FL_CERT_REQUIRED'
   | 'FL_CERT_NOT_FOUND'
-  | 'REVENUE_BELOW_BAND'
-  | 'REVENUE_ABOVE_BAND'
   | 'NOT_OWNER_MANAGER'
   | 'NO_OWNER_MANAGER_ON_CR'
   | 'FL_IBAN_NOT_LINKED'
@@ -51,6 +59,8 @@ export type ReasonCode =
 
 export interface Eligibility {
   result: EligibilityResult;
+  /** null when ELIGIBLE. */
+  notEligibleAt: NotEligibleAt | null;
   reason: ReasonCode;
   ruleId: string;
   ruleset: string;
@@ -91,8 +101,7 @@ export type Lifecycle =
   | 'QUALIFICATION'
   | 'OTP_PENDING'
   | 'DRAFT'
-  | 'SALES_LEAD'
-  | 'BLOCKED'
+  | 'NOT_ELIGIBLE'
   | 'PAUSED_CR'
   | 'SUBMITTED'
   | 'UNDER_REVIEW'
@@ -105,9 +114,7 @@ export type Lifecycle =
 export type OutcomeKind =
   | 'SUBMITTED'
   | 'SUBMITTED_MANUAL'
-  | 'SALES_LEAD'
-  | 'FL_CERT_REQUIRED'
-  | 'BLOCKED'
+  | 'NOT_ELIGIBLE'
   | 'PAUSED_CR';
 
 /** Internal flags. Never shown to the applicant as reasons. */
@@ -126,7 +133,7 @@ export type Flag =
 /* ------------------------------------------------------------------ existence check (internal) */
 
 /** Result of the cheap internal lookup by CR / National ID. No provider is called. */
-export type Existence = 'new' | 'incomplete' | 'submitted' | 'live' | 'paused';
+export type Existence = 'new' | 'incomplete' | 'submitted' | 'live' | 'paused' | 'not_eligible';
 
 /* ------------------------------------------------------------------ government data */
 
@@ -357,7 +364,7 @@ export interface Application {
 /** Prototype Controls: how the simulated providers and records answer. */
 export interface Sim {
   /** 'auto' = use the simulated backend; other values force a stored record for the entered identifier. */
-  existence: 'auto' | 'incomplete' | 'submitted' | 'live';
+  existence: 'auto' | 'incomplete' | 'submitted' | 'live' | 'not_eligible';
   /** Identify page answers "too many requests" (rate limit / bot challenge). */
   rateLimited: boolean;
   cr: {
@@ -389,7 +396,8 @@ export interface Backend {
   identities: Record<string, string>;
   /** Live merchants (merchant account exists): identifier -> registered account mobile. */
   merchants: Record<string, { mobile: string }>;
-  leads: Array<{ applicationId: string; qualificationId: string; kyb: Kyb; identifier: string; mobile: string; reason: ReasonCode; at: string }>;
+  /** Not Eligible records with a verified contact (kept so Madfu can reach them if eligibility changes). */
+  notEligible: Array<{ applicationId: string; qualificationId: string; kyb: Kyb; identifier: string; mobile: string; reason: ReasonCode; at: string }>;
   /** Continue-link token -> application id. The link identifies; OTP authorises. Revoked on submit. */
   tokens: Record<string, string>;
   sms: SmsMessage[];
