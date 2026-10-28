@@ -49,7 +49,7 @@ export const SNAPSHOTS: Snapshot[] = [
   { id: 'out-paused', section: 'cr', title: 'Outcome: CR expired', caption: 'Saved and handed to Sales; no Refresh button and no further paid checks.', state: () => sc('cr-expired') },
 
   // Freelancer
-  { id: 'fl-certs', section: 'fl', title: 'Freelancer certificates (before Nafath)', caption: 'Retrieved by National ID, never uploaded. Expired / already linked cannot be selected.', state: () => loadCertificates(sc('fl-certs-multi')) },
+  { id: 'fl-certs', section: 'fl', title: 'Freelancer certificates (after Review, before Nafath)', caption: 'Retrieved by National ID, never uploaded. Expired / already linked cannot be selected.', state: () => loadCertificates(sc('fl-certs-multi')) },
   { id: 'fl-nafath', section: 'fl', title: 'Freelancer: Send to Nafath', caption: 'Mobile ↔ National ID first, then the Nafath request.', state: () => sc('fl-nafath') },
   { id: 'fl-waiting', section: 'fl', title: 'Nafath request', caption: 'Identity only — not the contract. Two attempts.', state: () => sendToNafath(sc('fl-nafath')) },
   { id: 'fl-mismatch', section: 'fl', title: 'Mobile not registered to the National ID', caption: '"Use another mobile number" → OTP → check again. Progress is kept.', state: () => sendToNafath(sc('fl-mismatch')) },

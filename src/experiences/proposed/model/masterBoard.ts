@@ -113,11 +113,11 @@ export const BOARD_BOXES: BoardBox[] = [
 
   // Row 3 — new eligible Freelancer with certificate
   { id: 'lane-fl', col: 0, row: 3, tone: 'lane', title: 'Freelancer', caption: 'Self-Onboarding' },
-  { id: 'fl-certificate', col: 1, row: 3, tone: 'step', title: 'Certificate', caption: 'Choose the Freelancer Certificate', step: 'certificates', state: () => loadCertificates(sc('fl-certs-multi')) },
-  { id: 'fl-nafath', col: 2, row: 3, tone: 'step', title: 'Nafath', caption: 'Identity verified in the Nafath app', step: 'nafath', state: () => sendToNafath(sc('fl-nafath')) },
-  { id: 'fl-details', col: 3, row: 3, tone: 'step', title: 'Business Details + IBAN', caption: 'Website · IBAN linked to the certificate', step: 'business', state: () => finishIbanCheck(startIbanCheck(setIban(setPresence(sc('biz-fl'), { websiteUrl: 'studio.example.com' }), 'SA0080000000123456784821'))) },
-  { id: 'fl-offer', col: 4, row: 3, tone: 'step', title: 'Commercial Offer', caption: 'Standard commission → Continue', step: 'commercial', state: () => fl('commercial') },
-  { id: 'fl-review', col: 5, row: 3, tone: 'step', title: 'Review', caption: 'Verified details locked', step: 'review', state: () => sc('review-fl') },
+  { id: 'fl-certificate', col: 4, row: 3, tone: 'step', title: 'Certificate', caption: 'Choose the Freelancer Certificate', step: 'certificates', state: () => loadCertificates(sc('fl-certs-multi')) },
+  { id: 'fl-nafath', col: 5, row: 3, tone: 'step', title: 'Nafath', caption: 'Identity verified in the Nafath app', step: 'nafath', state: () => sendToNafath(sc('fl-nafath')) },
+  { id: 'fl-details', col: 1, row: 3, tone: 'step', title: 'Business Details + IBAN', caption: 'Website · IBAN linked to the National ID', step: 'business', state: () => finishIbanCheck(startIbanCheck(setIban(setPresence(sc('biz-fl'), { websiteUrl: 'studio.example.com' }), 'SA0080000000123456784821'))) },
+  { id: 'fl-offer', col: 2, row: 3, tone: 'step', title: 'Commercial Offer', caption: 'Standard commission → Continue', step: 'commercial', state: () => fl('commercial') },
+  { id: 'fl-review', col: 3, row: 3, tone: 'step', title: 'Review', caption: 'Details and offer, then the certificate', step: 'review', state: () => sc('review-fl') },
   { id: 'fl-contract', col: 6, row: 3, tone: 'step', title: 'Contract', caption: 'Agree & Submit', step: 'contract', state: () => fl('contract') },
   { id: 'fl-submitted', col: 7, row: 3, tone: 'done', title: 'Submitted', caption: 'Then: Application Progress', step: 'outcome', outcome: 'SUBMITTED', state: () => agreeAndSubmit(fl('contract')) }
 ];
@@ -178,8 +178,8 @@ export const BOARD_ARROWS: BoardArrow[] = [
   },
   {
     id: 'otp-new-fl',
-    points: [{ x: cx('cr-verify'), y: NEW_Y }, { x: GAP_X, y: NEW_Y }, { x: GAP_X, y: cy('fl-certificate') }, left('fl-certificate')],
-    pills: [label('New Freelancer', { x: GAP_X, y: cy('fl-certificate') - 150 })]
+    points: [{ x: cx('cr-verify'), y: NEW_Y }, { x: GAP_X, y: NEW_Y }, { x: GAP_X, y: cy('fl-details') }, left('fl-details')],
+    pills: [label('New Freelancer', { x: GAP_X, y: cy('fl-details') - 150 })]
   },
   across('cr-verify', 'cr-details'),
   across('cr-details', 'cr-offer'),
@@ -205,11 +205,11 @@ export const BOARD_ARROWS: BoardArrow[] = [
     points: [bottom('signer-link'), { x: cx('signer-link'), y: PHASE2_Y }, { x: cx('delegation'), y: PHASE2_Y }, bottom('delegation')],
     pills: [label('Phase 2', { x: (cx('signer-nafath') + cx('signer-review')) / 2, y: PHASE2_Y })]
   },
-  across('fl-certificate', 'fl-nafath', (at) => check('Mobile match', at)),
-  across('fl-nafath', 'fl-details'),
   across('fl-details', 'fl-offer'),
   across('fl-offer', 'fl-review'),
-  across('fl-review', 'fl-contract'),
+  across('fl-review', 'fl-certificate'),
+  across('fl-certificate', 'fl-nafath', (at) => check('Mobile match', at)),
+  across('fl-nafath', 'fl-contract'),
   across('fl-contract', 'fl-submitted')
 ];
 

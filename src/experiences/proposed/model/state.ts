@@ -12,8 +12,8 @@
  *   choice → (self) owner / manager + mobile ↔ National ID + Nafath → Contract → Submit, or (signer)
  *   Signer Handoff: the application and offer freeze, the signer gets a secure SMS link → masked
  *   confirmation → Nafath → read-only Review → Contract → Submit. No signer OTP in Phase 1.
- * - Freelancer: Certificate → mobile ↔ National ID + Nafath → Business Details (+ IBAN) → Commercial
- *   Offer → Review → Contract → Submit.
+ * - Freelancer: Business Details (+ IBAN) → Commercial Offer → Review → Certificate → mobile ↔ National
+ *   ID + Nafath → Contract → Submit (same shape as CR; the certificate is the final authority step).
  */
 import { activityLabel, deriveCategory } from './activity';
 import { DAY_MS, HANDOFF_RULES, LIMITS, isFreelancer, isSaudiMobile, maskLast3, type HandoffRules } from './config';
@@ -120,7 +120,7 @@ const isCr = (app: Application) => app.kyb.kind === 'CR';
 const isSigner = (app: Application) => app.actor === 'signer';
 
 /** Linear order of screens, used for "furthest step reached". */
-const ORDER: StepId[] = ['kyb', 'identify', 'otp', 'cr', 'certificates', 'nafath', 'business', 'commercial', 'review', 'authorize', 'delegation', 'handoff', 'signer', 'contract', 'outcome', 'status', 'login'];
+const ORDER: StepId[] = ['kyb', 'identify', 'otp', 'cr', 'business', 'commercial', 'review', 'authorize', 'delegation', 'handoff', 'signer', 'certificates', 'nafath', 'contract', 'outcome', 'status', 'login'];
 const furthest = (a: StepId, b: StepId) => (ORDER.indexOf(b) > ORDER.indexOf(a) ? b : a);
 
 /** Move to a step and remember the furthest step reached. Saves the application. */
@@ -256,7 +256,7 @@ export function pathFor(app: Application): StepId[] {
   const p: StepId[] = ['kyb', 'identify', 'otp'];
   if (isCr(app)) p.push('cr', 'business', 'commercial', 'review', 'authorize', 'nafath', 'contract');
   else {
-    p.push('certificates', 'nafath', 'business', 'commercial', 'review');
+    p.push('business', 'commercial', 'review', 'certificates', 'nafath');
     if (contractEligible(app) || app.step === 'contract') p.push('contract');
   }
   p.push('outcome');
@@ -429,7 +429,7 @@ function createApplication(s: ProposedState): ProposedState {
   };
   if (e.result === 'NOT_ELIGIBLE') return captureNotEligible(base, e.reason);
   if (s.app.kyb.kind === 'FL_CERT' && s.app.identity.prerequisite === 'no') return captureNotEligible(base, 'FL_IBAN_NOT_LINKED');
-  return go(base, isCr(base.app) ? 'cr' : 'certificates');
+  return go(base, isCr(base.app) ? 'cr' : 'business');
 }
 
 /** Existing record, stored mobile verified: open it by its lifecycle + authorization, never by completion alone. */
@@ -541,13 +541,13 @@ export function runBusinessVerification(s: ProposedState): ProposedState {
 export const crVerified = (app: Application) => app.cr.status === 'loaded' && app.persons.status === 'loaded';
 export const continueFromCr = (s: ProposedState): ProposedState => (crVerified(s.app) ? go(s, 'business') : s);
 
-/* ------------------------------------------------------------------ Stage 3 (FL): certificate BEFORE Nafath */
+/* ------------------------------------------------------------------ Stage 7 (FL): certificate after Review, BEFORE Nafath */
 
 const certsFingerprint = (app: Application) => `certs:${app.identity.identifier}`;
 
 /**
- * One retrieval by National ID, before Nafath (cost order: no certificate → no Nafath cost). No usable
- * certificate → captured internally ("Application submitted"). A stored result is reused.
+ * One retrieval by National ID, after Review and before Nafath (no certificate → no Nafath cost). No
+ * usable certificate → captured internally ("Application submitted"). A stored result is reused.
  */
 export function loadCertificates(s: ProposedState): ProposedState {
   if (!fl(s.app) || s.app.certs.status === 'loaded') return s;
@@ -568,15 +568,15 @@ export function loadCertificates(s: ProposedState): ProposedState {
 
 export function selectCertificate(s: ProposedState, id: string): ProposedState {
   if (stepLocked(s.app, 'certificates') || !canEdit(s.app) || s.app.certs.selectedId === id) return s;
-  let app: Application = { ...s.app, certs: { ...s.app.certs, selectedId: id } };
-  if (app.verifications.IBAN?.status === 'valid') {
-    app = invalidate(app, ['IBAN'], 'Freelancer certificate changed');
-    app = { ...app, business: { ...app.business, ibanStatus: 'idle', ibanFailures: 0, bankName: '' } };
-  }
-  return { ...s, app };
+  // The IBAN was already checked in Business Details (against the National ID): choosing the certificate does not reset it.
+  return withApp(s, { certs: { ...s.app.certs, selectedId: id } });
 }
 
-/** Confirm the certificate: its activity becomes the verified category (authoritative). Then Nafath. */
+/**
+ * Confirm the certificate (after Review): its activity becomes the verified category (authoritative) and
+ * part of the authorization context. Then Nafath. The offer agreed earlier is kept; a reclassified
+ * activity is flagged internally.
+ */
 export function confirmCertificate(s: ProposedState): ProposedState {
   const cert = s.app.certs.list.find((c) => c.id === s.app.certs.selectedId);
   if (!cert || cert.status !== 'active' || cert.issue === 'duplicate' || stepLocked(s.app, 'certificates')) return s;
@@ -760,7 +760,7 @@ const matchFingerprint = (app: Application) => `mm:${verifyingMobile(app)}:${naf
 const nafathFingerprint = (app: Application) => `nafath:${app.id}:${nafathSubject(app)}`;
 export const nafathRemaining = (app: Application) => Math.max(0, LIMITS.nafathAttempts - app.nafath.failures);
 
-/** Nafath can be requested here: a confirmed certificate (FL), a chosen self-authorizer (CR) or a live signer link. */
+/** Nafath can be requested here: a confirmed certificate after Review (FL), a chosen self-authorizer (CR) or a live signer link. */
 const nafathReady = (app: Application) =>
   fl(app) ? certificateConfirmed(app) : isSigner(app) ? signerActive(app) : app.authorization.mode === 'self' && !!app.persons.selectedId;
 
@@ -858,13 +858,13 @@ export const nextNafathAnswer = (s: ProposedState) => nafathAdapter(s.sim, s.app
 
 /**
  * After Nafath. Signer → full read-only Review. CR preparer (self) → Contract, or (failed twice) manual
- * verification. Freelancer → Business Details (failed twice: details still collected, no contract).
+ * verification. Freelancer → Contract, or (failed twice) manual verification — same as the CR preparer.
  */
 export function continueAfterNafath(s: ProposedState): ProposedState {
   const { app } = s;
   const n = app.nafath;
   if (isSigner(app)) return n.status === 'verified' && app.sessionVerified && signerActive(app) ? go(s, 'review') : s;
-  if (fl(app)) return n.status === 'verified' || n.status === 'exhausted' ? go(s, 'business') : s;
+  if (n.status === 'verified' && fl(app)) return contractEligible(app) ? go(s, 'contract', { contract: { status: 'ready', acceptedAt: '' } }) : s;
   if (n.status === 'verified') return go(mapApp(s, (a) => setAuth(a, 'CONTRACT_PENDING')), 'contract', { contract: { status: 'ready', acceptedAt: '' } });
   if (n.status === 'exhausted') return revokeTokens(finish(s, 'SUBMITTED_MANUAL', 'SUBMITTED'));
   return s;
@@ -880,7 +880,8 @@ export const needsMaps = (app: Application) => app.kyb.channel === 'offline' || 
 export const presenceComplete = (app: Application) =>
   (!needsWebsite(app) || !validateWebsite(app.business.websiteUrl)) && (!needsMaps(app) || !validateMapsUrl(app.business.mapsUrl));
 
-const ibanTarget = (app: Application) => `nid:${app.identity.identifier}:${app.certs.selectedId ?? ''}`;
+/** Checked in Business Details, before the certificate is chosen: linked to the National ID that holds the certificates. */
+const ibanTarget = (app: Application) => `nid:${app.identity.identifier}`;
 const ibanFingerprint = (app: Application) => `iban:${app.business.iban}:${ibanTarget(app)}`;
 
 /** Freelancer IBAN. A different IBAN invalidates only the IBAN check and starts with fresh attempts. */
@@ -907,9 +908,9 @@ export function finishIbanCheck(s: ProposedState): ProposedState {
   const b = s.app.business;
   const index = s.app.ledger.filter((e) => e.kind === 'call' && e.check === 'IBAN').length;
   const result = ibanAdapter(s.sim, index);
-  let app = log(s.app, { kind: 'call', check: 'IBAN', note: 'IBAN linkage check (individual + certificate)' });
+  let app = log(s.app, { kind: 'call', check: 'IBAN', note: 'IBAN linkage check (individual National ID)' });
   if (result === 'verified') {
-    app = store(app, makeRecord('IBAN', ibanFingerprint(app), 'linked to the National ID and certificate', now(), providerRef('IBN', index + 1)));
+    app = store(app, makeRecord('IBAN', ibanFingerprint(app), 'linked to the National ID', now(), providerRef('IBN', index + 1)));
     return persist({ ...s, app: { ...app, business: { ...b, ibanStatus: 'verified', ibanLast: result, bankName: bankFromIban(b.iban) } } });
   }
   if (result === 'technical') return persist({ ...s, app: { ...app, business: { ...b, ibanStatus: 'failed', ibanLast: result, bankName: '' } } });
@@ -994,8 +995,8 @@ export function reviewIssues(app: Application): Issue[] {
 
 /**
  * Continue from Review. Signer (read-only) → Contract. CR preparer → Authorization choice (or straight
- * back to the Contract when self-authorization is already verified). Freelancer → Contract, or manual
- * verification when the contract gate does not pass.
+ * back to the Contract when self-authorization is already verified). Freelancer → Certificate selection
+ * (or the first of certificate → Nafath → Contract still unfinished).
  */
 export function continueFromReview(s: ProposedState): ProposedState {
   const { app } = s;
@@ -1006,10 +1007,9 @@ export function continueFromReview(s: ProposedState): ProposedState {
   }
   if (reviewIssues(app).length || app.status !== 'DRAFT') return s;
   if (isCr(app)) return app.authorization.mode === 'self' && contractEligible(app) ? go(s, 'contract') : go(s, 'authorize');
-  if (contractEligible(app)) {
-    return go(s, 'contract', { contract: { status: app.contract.status === 'accepted' ? 'accepted' : 'ready', acceptedAt: app.contract.acceptedAt } });
-  }
-  return revokeTokens(finish(withApp(s, { contract: { status: 'unavailable', acceptedAt: '' } }), 'SUBMITTED_MANUAL', 'SUBMITTED'));
+  if (!certificateConfirmed(app)) return go(s, 'certificates');
+  if (app.nafath.status !== 'verified') return go(s, 'nafath');
+  return contractEligible(app) ? go(s, 'contract') : s;
 }
 
 /* ------------------------------------------------------------------ Stage 7 / 8: Contract, Submit, Status */
@@ -1111,12 +1111,12 @@ export function firstIncomplete(app: Application): StepId {
     if (app.authorization.mode === 'self' && app.authorization.status !== 'NOT_STARTED') return contractEligible(app) ? 'contract' : 'nafath';
     return ORDER.indexOf(app.lastStep) >= ORDER.indexOf('authorize') ? 'authorize' : 'review';
   }
-  if (!certificateConfirmed(app)) return 'certificates';
-  if (app.nafath.status !== 'verified' && app.nafath.status !== 'exhausted') return 'nafath';
+  // Freelancer: Business Details → Offer → Review → Certificate → Nafath → Contract.
   if (!businessComplete(app)) return 'business';
   if (!app.commercial.agreed) return 'commercial';
-  if (app.lastStep === 'contract' && contractEligible(app)) return 'contract';
-  return 'review';
+  if (!certificateConfirmed(app)) return ORDER.indexOf(app.lastStep) >= ORDER.indexOf('certificates') ? 'certificates' : 'review';
+  if (app.nafath.status !== 'verified') return 'nafath';
+  return contractEligible(app) ? 'contract' : 'review';
 }
 
 /** The next operation that would create a NEW external call (Internal view). */
@@ -1132,7 +1132,7 @@ export function nextPaidCall(s: ProposedState): string {
   const step = app.step;
   if (step === 'cr' && app.cr.status !== 'loaded') return 'CR data retrieval, then owners / managers';
   if (step === 'cr' && app.persons.status !== 'loaded') return 'Owners / managers retrieval';
-  if (step === 'certificates' && app.certs.status !== 'loaded') return 'Freelancer Certificate retrieval (before Nafath)';
+  if (step === 'certificates' && app.certs.status !== 'loaded') return 'Freelancer Certificate retrieval (after Review, before Nafath)';
   if (step === 'nafath' && app.nafath.status !== 'verified') return app.authorizedMobileVerified ? 'Nafath request' : 'Mobile ↔ National ID check, then Nafath request';
   if (step === 'business' && fl(app) && app.business.ibanStatus !== 'verified') return 'IBAN linkage check';
   if (step === 'authorize') return 'None — the signer’s checks run only after the secure link is opened';
@@ -1144,7 +1144,7 @@ export function nextPaidCall(s: ProposedState): string {
 type PrefillKind = 'CR' | 'FL_CERT';
 
 const CR_ORDER: StepId[] = ['kyb', 'identify', 'otp', 'cr', 'business', 'commercial', 'review', 'authorize', 'nafath', 'contract', 'outcome', 'status'];
-const FL_ORDER: StepId[] = ['kyb', 'identify', 'otp', 'certificates', 'nafath', 'business', 'commercial', 'review', 'contract', 'outcome', 'status'];
+const FL_ORDER: StepId[] = ['kyb', 'identify', 'otp', 'business', 'commercial', 'review', 'certificates', 'nafath', 'contract', 'outcome', 'status'];
 
 /**
  * A healthy self-service application walked with the REAL transitions up to (not including) `upTo`.
@@ -1167,10 +1167,7 @@ export function prefill(kind: PrefillKind, upTo: StepId, who: { identifier?: str
   s = submitIdentify(s);
   if (!reach('otp')) return at(s);
   s = verifyOtp(s, DEMO_SMS_CODE);
-  if (isFl) {
-    if (reach('certificates')) { s = loadCertificates(s); s = confirmCertificate(s); }
-    if (reach('nafath')) { s = sendToNafath(s); s = nafathResult(s, 'verified'); s = continueAfterNafath(s); }
-  } else if (reach('cr')) { s = runBusinessVerification(s); s = continueFromCr(s); }
+  if (!isFl && reach('cr')) { s = runBusinessVerification(s); s = continueFromCr(s); }
   if (reach('business')) {
     s = setPresence(s, isFl ? { websiteUrl: 'https://studio.example.com' } : { websiteUrl: 'https://najdroastery.example.com', mapsUrl: 'https://maps.google.com/?q=24.7136,46.6753' });
     if (isFl) { s = setIban(s, demoIban('80', '4821')); s = finishIbanCheck(startIbanCheck(s)); }
@@ -1178,10 +1175,9 @@ export function prefill(kind: PrefillKind, upTo: StepId, who: { identifier?: str
   }
   if (reach('commercial')) s = confirmOffer(s);
   if (reach('review')) s = continueFromReview(s);
-  if (!isFl) {
-    if (reach('authorize')) { s = chooseAuthMode(s, 'self'); s = selectPerson(s, 'p1'); s = authorizeSelf(s); }
-    if (reach('nafath')) { s = sendToNafath(s); s = nafathResult(s, 'verified'); s = continueAfterNafath(s); }
-  }
+  if (isFl && reach('certificates')) { s = loadCertificates(s); s = confirmCertificate(s); }
+  if (!isFl && reach('authorize')) { s = chooseAuthMode(s, 'self'); s = selectPerson(s, 'p1'); s = authorizeSelf(s); }
+  if (reach('nafath')) { s = sendToNafath(s); s = nafathResult(s, 'verified'); s = continueAfterNafath(s); }
   if (reach('contract')) s = agreeAndSubmit(s);
   if (upTo === 'status' || upTo === 'outcome') return { ...s.app, step: upTo === 'status' ? 'status' : 'outcome' };
   return at(s);

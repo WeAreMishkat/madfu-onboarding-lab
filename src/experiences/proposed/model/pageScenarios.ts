@@ -255,7 +255,7 @@ const certCase = (r: CertificatesResult) => (x: ProposedState) =>
 
 const certificates: PageDef = {
   title: 'Freelancer certificate',
-  intro: 'Before Nafath: one retrieval by National ID (no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category; then Nafath.',
+  intro: 'After Review, before Nafath: one retrieval by National ID (no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category; then Nafath.',
   integrations: ['Freelance platform (certificates)'],
   groups: () => [{
     title: 'Retrieval result',

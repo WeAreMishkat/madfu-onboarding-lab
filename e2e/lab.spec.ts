@@ -61,7 +61,7 @@ async function freshProposed(page: Page) {
   await page.reload();
 }
 
-test('Madfu Proposed: Freelancer journey end to end (Page 1 → Page 2 → OTP → certificate → Nafath → details → offer → submit)', async ({ page }) => {
+test('Madfu Proposed: Freelancer journey end to end (Page 1 → Page 2 → OTP → details → offer → review → certificate → Nafath → contract → submit)', async ({ page }) => {
   await freshProposed(page);
   // Page 1: five questions, no identity, mobile or URL.
   await expect(page.getByLabel('Mobile number')).toHaveCount(0);
@@ -78,12 +78,6 @@ test('Madfu Proposed: Freelancer journey end to end (Page 1 → Page 2 → OTP �
   await page.getByRole('radio', { name: 'Yes' }).check();
   await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Verification code').fill('246810');
-  // Certificate first (before Nafath), then Nafath.
-  await expect(page.getByText('FL-400000001')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('button', { name: 'Continue to Nafath' }).click();
-  await page.getByRole('button', { name: 'Send to Nafath' }).click({ timeout: 10_000 });
-  await expect(page.getByText('Identity verified')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('main').getByRole('button', { name: 'Continue', exact: true }).click();
   // Business Details: website + Freelancer IBAN linkage.
   await page.getByLabel('Online store or business website').fill('studio.example.com');
   await page.getByRole('textbox', { name: 'IBAN' }).fill(['SA00', '8000', '0000', '1234', '5678', '4821'].join(''));
@@ -97,7 +91,13 @@ test('Madfu Proposed: Freelancer journey end to end (Page 1 → Page 2 → OTP �
   await expect(page.getByText('Everything is ready')).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Review your application' })).toBeVisible();
-  await page.getByRole('button', { name: 'Continue to contract' }).click();
+  // After Review: certificate, then Nafath, then the contract.
+  await page.getByRole('button', { name: 'Continue to certificate' }).click();
+  await expect(page.getByText('FL-400000001')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Continue to Nafath' }).click();
+  await page.getByRole('button', { name: 'Send to Nafath' }).click({ timeout: 10_000 });
+  await expect(page.getByText('Identity verified')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('main').getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Schedule 1' })).toContainText('Standard commission');
   await page.getByRole('button', { name: 'Agree & Submit' }).click();
   await expect(page.getByRole('heading', { name: 'Your application has been submitted successfully.' })).toBeVisible();

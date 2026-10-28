@@ -124,17 +124,17 @@ const C: JourneyMap = {
 };
 
 const D: JourneyMap = {
-  id: 'fl', large: true, title: `D · ${S(3)}: Freelancer — certificate before Nafath`,
-  caption: 'The certificate list is retrieved by National ID and chosen BEFORE Nafath (one call; no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category; then mobile ↔ National ID and Nafath. Freelancer IBAN stays required and linked to the certificate.',
+  id: 'fl', large: true, title: `D · ${S(7)}: Freelancer — certificate after Review, before Nafath`,
+  caption: 'Freelancer: Business Details (+ IBAN) → Commercial Offer → Review first, then the certificate list is retrieved by National ID and chosen BEFORE Nafath (one call; no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category and part of the authorization context; then mobile ↔ National ID, Nafath and the Contract.',
   nodes: [
     { id: 'none', kind: 'outcome', label: 'Application submitted', detail: 'No usable certificate → internal Not Eligible · NO Nafath call', col: 1, row: 0, outcome: 'RECEIVED' },
     { id: 'blk', kind: 'outcome', label: 'Application submitted', detail: 'Certificate activity requires a CR → internal', col: 3, row: 0, outcome: 'RECEIVED' },
-    { id: 'start', kind: 'connector', label: 'From routing: new Freelancer (DRAFT)', col: 0, row: 1 },
+    { id: 'start', kind: 'connector', label: `From ${S(6)}: Freelancer continues (DRAFT)`, col: 0, row: 1, step: 'review' },
     { id: 'get', kind: 'external', label: 'Certificate retrieval', detail: 'By National ID · reused on resume', col: 1, row: 1, step: 'certificates' },
     { id: 'sel', kind: 'screen', label: 'Choose certificate', detail: 'Expired / already linked cannot be selected', col: 2, row: 1, step: 'certificates' },
     { id: 'rec', kind: 'decision', label: 'Certificate activity → verified category', col: 3, row: 1 },
     { id: 'naf', kind: 'connector', label: '→ E · Mobile ↔ National ID + Nafath', col: 4, row: 1, step: 'nafath' },
-    { id: 'next', kind: 'connector', label: `→ F · ${S(4)} (IBAN linked to the certificate)`, col: 5, row: 1, step: 'business' },
+    { id: 'next', kind: 'connector', label: '→ Contract (verified) · manual verification (failed twice)', col: 5, row: 1, step: 'contract' },
     { id: 'unav', kind: 'screen', label: 'Service unavailable', detail: 'Retry later; no Nafath yet', col: 1, row: 2, step: 'certificates' },
     { id: 'lock', kind: 'cached', label: 'Locked after Nafath', detail: 'Certificate cannot change once verified', col: 4, row: 2 },
     { id: 'od', kind: 'open', label: 'PRIVACY / PROVIDER: certificate details before Nafath', col: 0, row: 3 },

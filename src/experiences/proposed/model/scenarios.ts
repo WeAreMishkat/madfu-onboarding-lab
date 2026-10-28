@@ -137,7 +137,7 @@ export const SCENARIOS: Scenario[] = [
   { id: 'id-throttled', group: 'Identify & routing', label: 'Too many requests', hint: 'Rate limit / bot challenge on Page 2 (simulated).', build: () => atIdentify('id-throttled', {}, simWith({ rateLimited: true })) },
   { id: 'otp-errors', group: 'Identify & routing', label: 'OTP errors', hint: 'Wrong codes, expiry, bounded resends.', build: () => { const s = submitIdentify(atIdentify('otp-errors', {})); return { ...s, app: { ...s.app, otp: { ...s.app.otp, status: 'incorrect', attemptsLeft: 2, code: '135790' } } }; } },
   { id: 'resume-link', group: 'Identify & routing', label: 'Continue link → OTP → resume (registered business)', hint: 'Saved at the Commercial Offer: only the code, then the offer; nothing re-verified.', build: () => resumeFrom('resume-link', 'CR', 'commercial') },
-  { id: 'resume-link-fl', group: 'Identify & routing', label: 'Continue link → OTP → resume (Freelancer)', hint: 'Saved at Business Details: certificate and Nafath reused.', build: () => resumeFrom('resume-link-fl', 'FL_CERT', 'business') },
+  { id: 'resume-link-fl', group: 'Identify & routing', label: 'Continue link → OTP → resume (Freelancer)', hint: 'Saved after Review: resumes at the certificate selection; details and offer kept.', build: () => resumeFrom('resume-link-fl', 'FL_CERT', 'certificates') },
 
   // Registered business
   { id: 'cr-happy', group: 'Registered business', label: 'Walk the registered-business journey', hint: 'From Page 1 to Submit (code 246810).', build: () => atKyb('cr-happy', { group: 'food', sub: 'food-cafe', channel: 'both' }) },
@@ -177,7 +177,7 @@ export const SCENARIOS: Scenario[] = [
 
   // Freelancer
   { id: 'fl-happy', group: 'Freelancer', label: 'Walk the Freelancer journey', hint: 'From Page 1 to Submit.', build: () => atKyb('fl-happy', KYB_FL) },
-  { id: 'fl-certs-multi', group: 'Freelancer', label: 'Several certificates', hint: 'Before Nafath: choose one; its activity becomes the verified category.', build: () => at('fl-certs-multi', 'FL_CERT', 'certificates', simWith({ certificates: 'multiple' }), freshCerts) },
+  { id: 'fl-certs-multi', group: 'Freelancer', label: 'Several certificates', hint: 'After Review, before Nafath: choose one; its activity becomes the verified category.', build: () => at('fl-certs-multi', 'FL_CERT', 'certificates', simWith({ certificates: 'multiple' }), freshCerts) },
   { id: 'fl-no-cert', group: 'Freelancer', label: 'No certificate found', hint: 'Captured internally before any Nafath cost; the merchant sees Application submitted.', build: () => at('fl-no-cert', 'FL_CERT', 'certificates', simWith({ certificates: 'none' }), freshCerts) },
   { id: 'fl-cert-unavailable', group: 'Freelancer', label: 'Certificate service unavailable', hint: 'Retry later; no Nafath call yet.', build: () => at('fl-cert-unavailable', 'FL_CERT', 'certificates', simWith({ certificates: 'unavailable' }), freshCerts) },
   { id: 'fl-cert-cr-only', group: 'Freelancer', label: 'Certificate activity requires a CR', hint: 'Captured internally after confirmation.', build: () => at('fl-cert-cr-only', 'FL_CERT', 'certificates', simWith({ certificates: 'mismatch' }), freshCerts) },
@@ -186,7 +186,7 @@ export const SCENARIOS: Scenario[] = [
 
   // Business Details
   { id: 'biz-cr-both', group: 'Business Details', label: 'Registered business: website + Google Maps', hint: 'No IBAN, VAT or branch count for a registered business.', build: () => at('biz-cr-both', 'CR', 'business') },
-  { id: 'biz-fl', group: 'Business Details', label: 'Freelancer: website + IBAN linkage', hint: 'IBAN verified against the National ID and certificate.', build: () => at('biz-fl', 'FL_CERT', 'business') },
+  { id: 'biz-fl', group: 'Business Details', label: 'Freelancer: website + IBAN linkage', hint: 'IBAN verified against the National ID; the certificate is chosen after Review.', build: () => at('biz-fl', 'FL_CERT', 'business') },
   { id: 'biz-fl-iban-fail', group: 'Business Details', label: 'Freelancer IBAN not linked', hint: 'Two mismatches for an IBAN: enter another IBAN. Technical errors do not count.', build: () => at('biz-fl-iban-fail', 'FL_CERT', 'business', simWith({ iban: ['mismatch', 'mismatch', 'verified'] })) },
 
   // Commercial
@@ -196,10 +196,10 @@ export const SCENARIOS: Scenario[] = [
 
   // Review / contract
   { id: 'review', group: 'Review & contract', label: 'Review with locked verified sections', hint: 'Only store presence and the rate review can be edited; then the Authorization choice.', build: () => at('review', 'CR', 'review') },
-  { id: 'review-fl', group: 'Review & contract', label: 'Freelancer review', hint: 'Certificate, IBAN and verified category locked.', build: () => at('review-fl', 'FL_CERT', 'review') },
+  { id: 'review-fl', group: 'Review & contract', label: 'Freelancer review', hint: 'Details, IBAN and offer; the certificate is chosen next.', build: () => at('review-fl', 'FL_CERT', 'review') },
   { id: 'contract', group: 'Review & contract', label: 'Contract (self authorization)', hint: 'Agree & Submit: one action. Standard commission only.', build: () => at('contract', 'CR', 'contract') },
   { id: 'contract-fl', group: 'Review & contract', label: 'Contract (Freelancer)', hint: 'Agree & Submit.', build: () => at('contract-fl', 'FL_CERT', 'contract') },
-  { id: 'submit-manual', group: 'Review & contract', label: 'Submitted for manual verification', hint: 'Freelancer Nafath failed twice: Review submits without a contract.', build: () => at('submit-manual', 'FL_CERT', 'review', simWith(), (a) => ({ ...a, nafath: { ...a.nafath, status: 'exhausted', failures: 2, verifiedFor: null }, verifications: { ...a.verifications, NAFATH: undefined }, flags: [...a.flags, 'NAFATH_UNVERIFIED'] })) },
+  { id: 'submit-manual', group: 'Review & contract', label: 'Submitted for manual verification', hint: 'Freelancer Nafath failed twice: Continue submits without a contract.', build: () => at('submit-manual', 'FL_CERT', 'nafath', simWith(), (a) => ({ ...a, nafath: { ...a.nafath, status: 'exhausted', failures: 2, verifiedFor: null }, verifications: { ...a.verifications, NAFATH: undefined }, flags: [...a.flags, 'NAFATH_UNVERIFIED'] })) },
 
   // Status
   { id: 'status-submitted', group: 'Application status', label: 'Submitted', hint: 'Application Progress after the registered-mobile code.', build: () => at('status-submitted', 'CR', 'status') },
@@ -237,7 +237,7 @@ export const JOURNEY_PRESETS: Array<{ id: string; workflow: Workflow; label: str
   { id: 'id-incomplete', workflow: 'Existing In-Progress CR Merchant — Resume', label: 'Existing incomplete application', hint: 'Different mobile entered: code to the stored mobile; resume at Business Details.' },
   { id: 'resume-link', workflow: 'Existing In-Progress CR Merchant — Resume', label: 'Resume (Continue link)', hint: 'Only the code; stored checks are reused.' },
   { id: 'id-incomplete-fl', workflow: 'Existing In-Progress Freelancer — Resume', label: 'Existing incomplete Freelancer application', hint: 'Code to the stored mobile; resume at Nafath.' },
-  { id: 'resume-link-fl', workflow: 'Existing In-Progress Freelancer — Resume', label: 'Freelancer Continue link', hint: 'Resume at Business Details.' },
+  { id: 'resume-link-fl', workflow: 'Existing In-Progress Freelancer — Resume', label: 'Freelancer Continue link', hint: 'Resume at the certificate selection (after Review).' },
   { id: 'id-submitted', workflow: 'Submitted Application', label: 'Submitted application', hint: 'Registered-mobile code → Application Progress.' },
   { id: 'id-live', workflow: 'Existing Live Merchant', label: 'Live merchant', hint: 'Code → “You already have an active account” popup → Log in.' },
   { id: 'auth-signer', workflow: 'CR Merchant Signer Flow', label: 'CR signer handoff', hint: 'Send to another signer from the Authorization choice.' },

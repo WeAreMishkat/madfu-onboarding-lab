@@ -80,7 +80,7 @@ const SECTION_LABEL: Record<SnapshotSection, string> = {
   kyb: `Stage 1 · ${STAGES[0].label}`,
   identify: `Stage 2 · ${STAGES[1].label}, existing records and routing`,
   cr: `Stage 3 · ${STAGES[2].label}: registered business`,
-  fl: `Stage 3 · ${STAGES[2].label}: Freelancer`,
+  fl: `Stage 7 · ${STAGES[6].label}: Freelancer certificate and Nafath (after Review)`,
   details: `Stage 4 · ${STAGES[3].label}`,
   commercial: `Stage 5 · ${STAGES[4].label}`,
   review: `Stage 6 · ${STAGES[5].label}`,
@@ -121,7 +121,7 @@ export default function PrintWireframes() {
         <li><strong>Access belongs to the stored mobile.</strong> Merchant entity, application and user are separate: an existing application or account opens only with a code to its stored mobile; a new mobile never takes over.</li>
         <li><strong>Lifecycle and authorization first.</strong> A returning applicant is routed by status: draft → resume, awaiting authorization → status, submitted → Application Progress, live → active-account popup.</li>
         <li><strong>One direction, one version.</strong> A CR signer reviews and signs exactly the frozen application and offer, after Nafath; no send-back loop; versions are tracked on the same application.</li>
-        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused; the Freelancer certificate comes before Nafath; resume normally costs one OTP.</li>
+        <li><strong>Never repeat a paid verification unnecessarily.</strong> Successful checks are reused; the Freelancer certificate comes after Review and before Nafath; resume normally costs one OTP.</li>
         <li><strong>Hard rules and risk are separate.</strong> Hard rules capture internally; CR age and other factors only score risk in the backend.</li>
       </ol>
     </Page>
@@ -134,7 +134,7 @@ export default function PrintWireframes() {
   const snaps = (s: SnapshotSection) => SNAPSHOTS.filter((x) => x.section === s);
   const panel = (id: string) => DETAILED_BOARD.find((m) => m.id === id)!;
   const order: Array<[SnapshotSection, string[]]> = [
-    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr']], ['fl', ['fl', 'nafath']], ['details', ['details']], ['commercial', ['commercial']], ['review', ['review']],
+    ['kyb', ['kyb']], ['identify', ['identify']], ['cr', ['cr']], ['details', ['details']], ['commercial', ['commercial']], ['review', ['review']], ['fl', ['fl', 'nafath']],
     ['authorize', ['authorize']], ['signer', ['signer']], ['contract', ['contract', 'reuse', 'states']], ['validation', []]
   ];
   pages.push(

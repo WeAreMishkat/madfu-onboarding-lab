@@ -81,7 +81,7 @@ export function renderJourneyDoc(): string {
   out.push('3. Not Eligible Application → captured with the internal reason → "Application submitted" (later "Under review"); the team contacts the applicant. No paid check.');
   out.push('4. New Eligible CR Merchant → CR Verification → Business Details → Commercial Offer → Review → Authorization choice → (myself) owner / manager → mobile ↔ National ID → Nafath → Contract → Submitted, or (another signer) Signer Handoff.');
   out.push(`5. CR Merchant Signer Flow → application + offer frozen → secure SMS link (${HANDOFF_RULES.expiryDays} days, configurable) → masked signer confirmation → mobile ↔ National ID → Nafath → read-only Review → Contract → Agree & Sign → Submitted. No signer OTP. Max ${HANDOFF_RULES.maxVersions} versions of the same application in ${HANDOFF_RULES.windowDays} days.`);
-  out.push('6. New Eligible Freelancer → Certificate → mobile ↔ National ID → Nafath → Business Details (+ IBAN linked to the certificate) → Commercial Offer → Review → Contract → Submitted.');
+  out.push('6. New Eligible Freelancer → Business Details (+ IBAN) → Commercial Offer → Review → Certificate → mobile ↔ National ID → Nafath → Contract → Submitted.');
   out.push('7. Resume (CR / Freelancer) → first unfinished step · Submitted → Application Progress · Live → "active account" popup → Log in.', '');
 
   out.push('## Phase 1 vs Phase 2', '');

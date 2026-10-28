@@ -139,7 +139,7 @@ export function NafathStep() {
       )}
 
       {nafath.status === 'verified' && (
-        <Alert tone="success" title="Identity verified">{signer ? 'Next, review the application.' : fl ? 'Next, your business details.' : 'Next, the contract.'}</Alert>
+        <Alert tone="success" title="Identity verified">{signer ? 'Next, review the application.' : 'Next, the contract.'}</Alert>
       )}
 
       {nafath.status === 'failed' && nafath.lastResult && nafath.lastResult !== 'verified' && (
@@ -158,7 +158,7 @@ export function NafathStep() {
       {nafath.status === 'exhausted' && (
         <Alert tone="warning" title="Nafath verification was not completed">
           {fl
-            ? 'We will verify your identity manually. You can still complete your business details; the contract will not be available in this application.'
+            ? 'We will verify your identity manually. Continue to send your application to our team; the contract will not be available in this application.'
             : 'We will verify the owner or manager manually. Continue to send your application to our team; the contract will not be available in this application.'}
         </Alert>
       )}

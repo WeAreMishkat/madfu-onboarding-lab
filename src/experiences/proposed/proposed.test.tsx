@@ -143,7 +143,7 @@ describe('Registered business end to end', () => {
 });
 
 describe('Freelancer end to end', () => {
-  it('certificate first (before Nafath); Nafath; website + IBAN linkage; offer; review', async () => {
+  it('Business Details + IBAN; offer; review; then certificate; Nafath; contract', async () => {
     const { user } = await open();
     await kyb(user, { kind: 'FL_CERT', group: 'services', sub: 'services-design' });
     await user.type(await screen.findByLabelText('National ID Number'), DEMO.nationalId);
@@ -151,12 +151,6 @@ describe('Freelancer end to end', () => {
     await user.click(screen.getByRole('radio', { name: 'Yes' }));
     await user.click(screen.getByRole('button', { name: 'Send code' }));
     await code(user);
-    await screen.findByRole('heading', { name: 'Choose your Freelancer Certificate' });
-    expect(await screen.findByText('FL-400000001', undefined, { timeout: 5000 })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Continue to Nafath' }));
-    await user.click(await screen.findByRole('button', { name: 'Send to Nafath' }));
-    await screen.findByText('Identity verified', undefined, { timeout: 8000 });
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
     await screen.findByRole('heading', { name: 'Business details' });
     await user.type(screen.getByLabelText('Online store or business website'), 'studio.example.com');
     await user.type(screen.getByLabelText('IBAN'), demoIban('80', '4821'));
@@ -165,7 +159,16 @@ describe('Freelancer end to end', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Review your application' })).toBeInTheDocument();
-  });
+    expect(screen.getByText('Chosen after this review')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue to certificate' }));
+    await screen.findByRole('heading', { name: 'Choose your Freelancer Certificate' });
+    expect(await screen.findByText('FL-400000001', undefined, { timeout: 5000 })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue to Nafath' }));
+    await user.click(await screen.findByRole('button', { name: 'Send to Nafath' }));
+    await screen.findByText('Identity verified', undefined, { timeout: 8000 });
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('button', { name: 'Agree & Submit' })).toBeInTheDocument();
+  }, 20000);
 });
 
 describe('Existing records and routing after OTP', () => {

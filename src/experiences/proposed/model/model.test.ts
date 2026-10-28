@@ -12,7 +12,7 @@ import {
   activeVersion, addEvidence, agreeAndSubmit, asksPrerequisite, authorizeSelf, canStartHandoff, cancelEdit, capturesNotEligible, checkExpiry, chooseAuthMode,
   confirmCertificate, confirmOffer, contractEligible, continueAfterNafath, continueFromCr, continueFromReview, createHandoff, currentVersion, delegationResult,
   existenceFor, finishIbanCheck, firstIncomplete, goLive, initialSim, initialState, isFrozen, latestSignerToken, leaveSession, loadCertificates, manualUnlock,
-  nafathResult, openContinueLink, openDelegation, openSignerLink, prefill, requestRateReview, resendOtp, restartAuthorization, reviewerBack, reviewerBackTarget,
+  nafathResult, openContinueLink, openDelegation, openSignerLink, pathFor, prefill, requestRateReview, resendOtp, restartAuthorization, reviewerBack, reviewerBackTarget,
   routeFor, runBusinessVerification, salesRecoverCr, selectPerson, sendContinueLink, sendToNafath, setDelegationType, setIban, setIdentity, setKyb, setPresence,
   setReviewStatus, signerStartNafath, startEdit, startIbanCheck, startMobileChange, submitBusiness, submitIdentify, submitKyb, submitMobileChange, verifyOtp,
   withHandoff, withSaved, withdrawRateReview
@@ -184,8 +184,8 @@ describe('Revenue never routes: every band self-onboards when otherwise eligible
     expect(otp(apply({ ...CR_KYB, revenue })).app).toMatchObject({ status: 'DRAFT', step: 'cr', outcome: null });
   });
 
-  it.each(['BELOW_100K', 'ABOVE_20M'] as const)('Freelancer with certificate %s → self-onboarding (DRAFT, certificate)', (revenue) => {
-    expect(otp(apply({ ...FL_KYB, revenue })).app).toMatchObject({ status: 'DRAFT', step: 'certificates' });
+  it.each(['BELOW_100K', 'ABOVE_20M'] as const)('Freelancer with certificate %s → self-onboarding (DRAFT, Business Details)', (revenue) => {
+    expect(otp(apply({ ...FL_KYB, revenue })).app).toMatchObject({ status: 'DRAFT', step: 'business' });
   });
 
   it('revenue is still collected and is a risk input', () => {
@@ -439,42 +439,88 @@ describe('Mobile ↔ National ID before Nafath (self authorization and Freelance
   });
 });
 
-describe('New Eligible Freelancer: certificate before Nafath', () => {
-  it('end to end: Certificate → mobile ↔ National ID → Nafath → Business Details → Offer → Review → Contract → Submitted', () => {
+describe('New Eligible Freelancer: Business Details → Offer → Review → Certificate → Nafath → Contract', () => {
+  it('end to end in the new order; the certificate is not needed before Review', () => {
     let s = otp(apply(FL_KYB));
-    expect(s.app.step).toBe('certificates');
-    expect(sendToNafath(s)).toBe(s); // Nafath waits for the confirmed certificate
-    s = confirmCertificate(loadCertificates(s));
-    expect(s.app.step).toBe('nafath');
-    s = continueAfterNafath(nafathResult(sendToNafath(s), 'verified'));
     expect(s.app.step).toBe('business');
+    expect(s.app.certs.status).toBe('idle');
     s = setPresence(s, { websiteUrl: 'studio.example.com' });
     s = finishIbanCheck(startIbanCheck(setIban(s, demoIban('80', '4821'))));
-    s = confirmOffer(submitBusiness(s));
+    s = submitBusiness(s);
+    expect(s.app.step).toBe('commercial');
+    s = confirmOffer(s);
+    expect(s.app.step).toBe('review');
+    expect(s.app.commercial.agreed).not.toBeNull();
     s = continueFromReview(s);
+    expect(s.app.step).toBe('certificates'); // after Review
+    expect(sendToNafath(s)).toBe(s); // Nafath waits for the confirmed certificate
+    s = confirmCertificate(loadCertificates(s));
+    expect(s.app.step).toBe('nafath'); // before Nafath
+    expect(contractEligible(s.app)).toBe(false); // Nafath before Contract
+    s = continueAfterNafath(nafathResult(sendToNafath(s), 'verified'));
     expect(s.app.step).toBe('contract');
     s = agreeAndSubmit(s);
     expect(s.app).toMatchObject({ outcome: 'SUBMITTED', status: 'SUBMITTED' });
-    expect(paid(s)).toEqual(['FL_CERTS', 'MOBILE_MATCH', 'NAFATH', 'IBAN']);
+    expect(paid(s)).toEqual(['IBAN', 'FL_CERTS', 'MOBILE_MATCH', 'NAFATH']);
   });
 
-  it('no certificate → captured internally, and NO Nafath call', () => {
-    const s = loadCertificates(otp(apply(FL_KYB, {}, simWith({ certificates: 'none' }))));
+  it('the path and stage follow the new order', () => {
+    const app = prefill('FL_CERT', 'contract');
+    expect(pathFor(app)).toEqual(['kyb', 'identify', 'otp', 'business', 'commercial', 'review', 'certificates', 'nafath', 'contract', 'outcome']);
+  });
+
+  it('no certificate → captured internally after Review, and NO Nafath call', () => {
+    let s = withSaved(prefill('FL_CERT', 'certificates'), simWith({ certificates: 'none' }));
+    const from = s.app.ledger.length;
+    s = loadCertificates(s);
     expect(s.app).toMatchObject({ outcome: 'RECEIVED', outcomeReason: 'FL_CERT_NOT_FOUND' });
-    expect(paid(s)).toEqual(['FL_CERTS']);
+    expect(paid(s, from)).toEqual(['FL_CERTS']);
   });
 
   it('the certificate list is reused on resume and locked once Nafath is verified', () => {
-    const s = withSaved(prefill('FL_CERT', 'business'));
+    const s = withSaved(prefill('FL_CERT', 'contract'));
     expect(selectCertificateLocked(s)).toBe(true);
     const from = s.app.ledger.length;
     expect(paid(loadCertificates(s), from)).toEqual([]);
   });
 
-  it('the confirmed certificate activity prices the offer; a CR-only activity is captured internally', () => {
-    expect(prefill('FL_CERT', 'commercial').categoryCheck).toMatchObject({ source: 'CERTIFICATE', verifiedSub: 'services-design' });
-    const s = confirmCertificate(loadCertificates(otp(apply(FL_KYB, {}, simWith({ certificates: 'mismatch' })))));
+  it('the confirmed certificate activity becomes the verified category; a CR-only activity is captured internally', () => {
+    expect(prefill('FL_CERT', 'commercial').categoryCheck).toBeNull();
+    expect(prefill('FL_CERT', 'nafath').categoryCheck).toMatchObject({ source: 'CERTIFICATE', verifiedSub: 'services-design' });
+    const s = confirmCertificate(loadCertificates(withSaved(prefill('FL_CERT', 'certificates'), simWith({ certificates: 'mismatch' }))));
     expect(s.app).toMatchObject({ outcome: 'RECEIVED', outcomeReason: 'ACTIVITY_REQUIRES_CR' });
+  });
+
+  it('choosing the certificate after Business Details keeps the verified IBAN', () => {
+    const s = confirmCertificate(loadCertificates(withSaved(prefill('FL_CERT', 'certificates'))));
+    expect(s.app.business.ibanStatus).toBe('verified');
+    expect(s.app.step).toBe('nafath');
+  });
+
+  it('Freelancer Nafath failed twice: submitted for manual verification without a contract', () => {
+    let s = withSaved(prefill('FL_CERT', 'nafath'), simWith({ nafath: ['rejected', 'timeout'] }));
+    s = nafathResult(sendToNafath(s), 'rejected');
+    s = nafathResult(sendToNafath(s), 'timeout');
+    s = continueAfterNafath(s);
+    expect(s.app).toMatchObject({ outcome: 'SUBMITTED_MANUAL', status: 'SUBMITTED' });
+  });
+
+  it.each([
+    ['review', 'review'],
+    ['certificates', 'certificates'],
+    ['nafath', 'nafath'],
+    ['contract', 'contract']
+  ] as const)('resume: walked up to %s → resumes at %s; completed steps are not restarted', (upTo, expected) => {
+    let s = sendContinueLink(withSaved(prefill('FL_CERT', upTo)));
+    s = otp(openContinueLink(leaveSession(s), Object.keys(s.backend.tokens)[0]));
+    expect(s.app.step).toBe(expected);
+    expect(firstIncomplete(s.app)).toBe(expected);
+  });
+
+  it('the CR order is unchanged', () => {
+    expect(pathFor(prefill('CR', 'contract'))).toEqual(['kyb', 'identify', 'otp', 'cr', 'business', 'commercial', 'review', 'authorize', 'nafath', 'contract', 'outcome']);
+    expect(otp(apply(CR_KYB)).app.step).toBe('cr');
+    expect(continueFromReview(withSaved(prefill('CR', 'review'))).app.step).toBe('authorize');
   });
 });
 
@@ -787,13 +833,6 @@ describe('Contract, submission and Application Progress', () => {
     expect(agreeAndSubmit(s).app.outcome).toBe('SUBMITTED');
   });
 
-  it('Freelancer Nafath not verified: Review submits for manual verification without a contract', () => {
-    const base = prefill('FL_CERT', 'review');
-    const s = continueFromReview(withSaved({ ...base, nafath: { ...base.nafath, status: 'exhausted', verifiedFor: null }, verifications: { ...base.verifications, NAFATH: undefined } }));
-    expect(s.app.outcome).toBe('SUBMITTED_MANUAL');
-    expect(s.app.status).toBe('SUBMITTED');
-  });
-
   it('a CR preparer cannot reach the contract without an authorization choice', () => {
     const s = withSaved(prefill('CR', 'review'));
     expect(contractEligible(s.app)).toBe(false);
@@ -815,11 +854,11 @@ describe('Reviewer-only Back (Prototype Controls)', () => {
     expect(x.app.nafath.status).toBe('verified');
   });
 
-  it('Freelancer path goes back through Nafath and the certificate', () => {
-    let x = withSaved(prefill('FL_CERT', 'review'));
+  it('Freelancer path goes back through Nafath, the certificate and Review', () => {
+    let x = withSaved(prefill('FL_CERT', 'contract'));
     const steps: string[] = [];
     while (reviewerBackTarget(x.app)) { x = reviewerBack(x); steps.push(x.app.step); }
-    expect(steps).toEqual(['commercial', 'business', 'nafath', 'certificates']);
+    expect(steps).toEqual(['nafath', 'certificates', 'review', 'commercial', 'business']);
   });
 
   it('before the application exists it reopens Page 2 / Page 1; never on code screens, during an edit, for a signer or after DRAFT', () => {

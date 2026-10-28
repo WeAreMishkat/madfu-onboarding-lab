@@ -28,7 +28,7 @@
 3. Not Eligible Application → captured with the internal reason → "Application submitted" (later "Under review"); the team contacts the applicant. No paid check.
 4. New Eligible CR Merchant → CR Verification → Business Details → Commercial Offer → Review → Authorization choice → (myself) owner / manager → mobile ↔ National ID → Nafath → Contract → Submitted, or (another signer) Signer Handoff.
 5. CR Merchant Signer Flow → application + offer frozen → secure SMS link (7 days, configurable) → masked signer confirmation → mobile ↔ National ID → Nafath → read-only Review → Contract → Agree & Sign → Submitted. No signer OTP. Max 2 versions of the same application in 30 days.
-6. New Eligible Freelancer → Certificate → mobile ↔ National ID → Nafath → Business Details (+ IBAN linked to the certificate) → Commercial Offer → Review → Contract → Submitted.
+6. New Eligible Freelancer → Business Details (+ IBAN) → Commercial Offer → Review → Certificate → mobile ↔ National ID → Nafath → Contract → Submitted.
 7. Resume (CR / Freelancer) → first unfinished step · Submitted → Application Progress · Live → "active account" popup → Log in.
 
 ## Phase 1 vs Phase 2
@@ -95,7 +95,7 @@
 - Submitted applications (and internally Not Eligible ones) open Application Progress after the code; they never reopen Review, Contract or submission.
 - Existing live merchant: a popup "You already have an active account under this CR." with a "Log in" button; nothing navigates until the merchant clicks. No application is created.
 - Registered business: CR Verification / CR data → Business Details → Commercial Offer → Review → Authorization choice → (self) Nafath → Contract → Submitted, or Signer Handoff. The preparer is never asked to pick an owner / manager earlier only for signing, and is not asked whether they are an owner / manager on Page 2.
-- Freelancer: Certificate list / selection → mobile ↔ National ID → Nafath → Business Details → Commercial Offer → Review → Contract → Submitted. The certificate is visible BEFORE Nafath; the retrieval is also the cost check (no certificate → no Nafath). Freelancers declare "Is your IBAN linked to your Freelancer Certificate?" on Page 2.
+- Freelancer: Business Details → Commercial Offer → Review → Certificate list / selection → mobile ↔ National ID → Nafath → Contract → Submitted — the same shape as a registered business, with the certificate as the final authority step (CR: owner / manager authorization). The certificate is chosen after Review and BEFORE Nafath; the retrieval is also the cost check (no certificate → no Nafath). Freelancers declare "Is your IBAN linked to your Freelancer Certificate?" on Page 2.
 - CR IBAN, VAT and number of branches are not required in onboarding. Freelancer IBAN stays required and must be linked to the Freelancer Certificate.
 - Website / Google Maps are asked in Business Details by sales channel (online → website · offline → Google Maps · both → both). National Address is separate and not a store-presence substitute.
 - Commercial Offer belongs to the preparer and comes before the authorization choice: standard terms / rate → Continue, optional low-priority better-rate review. No payment-plan configuration, no 6 / 9 / 12-month selection. The signer can never modify it.
@@ -149,9 +149,9 @@ Master Board — the journey, screen by screen. Visual screen flow (real screens
 - **Freelancer** — Self-Onboarding
 - **Certificate** — Choose the Freelancer Certificate
 - **Nafath** — Identity verified in the Nafath app
-- **Business Details + IBAN** — Website · IBAN linked to the certificate
+- **Business Details + IBAN** — Website · IBAN linked to the National ID
 - **Commercial Offer** — Standard commission → Continue
-- **Review** — Verified details locked
+- **Review** — Details and offer, then the certificate
 - **Contract** — Agree & Submit
 - **Submitted** — Then: Application Progress
 
@@ -209,9 +209,9 @@ CR data and owners / managers are retrieved in the backend once and reused; nobo
 - **Not Eligible inventory** _(open)_
 - **Risk weights / thresholds** _(open)_
 
-### D · Business Verification: Freelancer — certificate before Nafath
+### D · Authorization & Contract: Freelancer — certificate after Review, before Nafath
 
-The certificate list is retrieved by National ID and chosen BEFORE Nafath (one call; no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category; then mobile ↔ National ID and Nafath. Freelancer IBAN stays required and linked to the certificate.
+Freelancer: Business Details (+ IBAN) → Commercial Offer → Review first, then the certificate list is retrieved by National ID and chosen BEFORE Nafath (one call; no certificate → no Nafath cost). The confirmed certificate activity becomes the verified category and part of the authorization context; then mobile ↔ National ID, Nafath and the Contract.
 
 - **Application submitted** _(outcome)_ — No usable certificate → internal Not Eligible · NO Nafath call
 - **Application submitted** _(outcome)_ — Certificate activity requires a CR → internal
@@ -413,7 +413,7 @@ _Registered business: Nafath is part of stage 7 (after the Authorization choice)
 | New identifier, internally Not Eligible (any reason) | Entered mobile | Application captured with the internal reason → "Application submitted"; no paid check; team contacts the applicant |
 | New identifier, eligible Freelancer, IBAN linked = No | Entered mobile | Captured internally (FL_IBAN_NOT_LINKED) → "Application submitted" |
 | New identifier, eligible registered business (any revenue band) | Entered mobile | Application created (DRAFT) → CR Verification |
-| New identifier, eligible Freelancer with certificate (any revenue band) | Entered mobile | Application created (DRAFT) → Certificate (before Nafath) |
+| New identifier, eligible Freelancer with certificate (any revenue band) | Entered mobile | Application created (DRAFT) → Business Details (certificate after Review) |
 | Incomplete application (DRAFT), any entered mobile | STORED application mobile (•••••••123) — never the entered one | Resume at the first unfinished CR / Freelancer step; valid checks reused |
 | Awaiting authorization (handoff exists) | Stored application mobile | Authorization status page (frozen, status only) |
 | Submitted, not live | Stored application mobile | Application Progress (status only) |
@@ -578,7 +578,7 @@ _Many-to-one. A CR carries several activities. Demo reconciliation: a regulated 
 | Internally Not Eligible | OTP only | Code → Application submitted |
 | Registered business (self) | OTP → CR_DATA → PERSONS → MOBILE_MATCH → NAFATH | Code → CR verification → details → offer → review → authorization → Nafath |
 | Registered business (signer) | OTP → CR data → owners / managers → (signer) mobile match → Nafath | Signer: link → confirmation → Nafath |
-| Freelancer | OTP → FL_CERTS → MOBILE_MATCH → NAFATH → IBAN | Code → certificate → Nafath → details (IBAN) |
+| Freelancer | OTP → IBAN → FL_CERTS → MOBILE_MATCH → NAFATH | Code → details (IBAN) → offer → review → certificate → Nafath |
 | No certificate found | OTP → certificate retrieval (then stop) | Code → Application submitted (no Nafath cost) |
 | Expired / suspended CR | OTP → CR data (then stop) | Code → saved, Sales follow-up |
 | Ordinary resume | OTP only (valid checks reused) | Code → first unfinished stage |
@@ -842,7 +842,7 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 - **Too many requests** — Rate limit / bot challenge on Page 2 (simulated).
 - **OTP errors** — Wrong codes, expiry, bounded resends.
 - **Continue link → OTP → resume (registered business)** — Saved at the Commercial Offer: only the code, then the offer; nothing re-verified.
-- **Continue link → OTP → resume (Freelancer)** — Saved at Business Details: certificate and Nafath reused.
+- **Continue link → OTP → resume (Freelancer)** — Saved after Review: resumes at the certificate selection; details and offer kept.
 
 ### Registered business
 
@@ -886,7 +886,7 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 ### Freelancer
 
 - **Walk the Freelancer journey** — From Page 1 to Submit.
-- **Several certificates** — Before Nafath: choose one; its activity becomes the verified category.
+- **Several certificates** — After Review, before Nafath: choose one; its activity becomes the verified category.
 - **No certificate found** — Captured internally before any Nafath cost; the merchant sees Application submitted.
 - **Certificate service unavailable** — Retry later; no Nafath call yet.
 - **Certificate activity requires a CR** — Captured internally after confirmation.
@@ -896,7 +896,7 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 ### Business Details
 
 - **Registered business: website + Google Maps** — No IBAN, VAT or branch count for a registered business.
-- **Freelancer: website + IBAN linkage** — IBAN verified against the National ID and certificate.
+- **Freelancer: website + IBAN linkage** — IBAN verified against the National ID; the certificate is chosen after Review.
 - **Freelancer IBAN not linked** — Two mismatches for an IBAN: enter another IBAN. Technical errors do not count.
 
 ### Commercial Offer
@@ -908,10 +908,10 @@ Generated from `model/pageScenarios.ts`; options depend on the current state (e.
 ### Review & contract
 
 - **Review with locked verified sections** — Only store presence and the rate review can be edited; then the Authorization choice.
-- **Freelancer review** — Certificate, IBAN and verified category locked.
+- **Freelancer review** — Details, IBAN and offer; the certificate is chosen next.
 - **Contract (self authorization)** — Agree & Submit: one action. Standard commission only.
 - **Contract (Freelancer)** — Agree & Submit.
-- **Submitted for manual verification** — Freelancer Nafath failed twice: Review submits without a contract.
+- **Submitted for manual verification** — Freelancer Nafath failed twice: Continue submits without a contract.
 
 ### Application status
 

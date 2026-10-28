@@ -21,11 +21,11 @@ export const STAGES = [
 export const stageOf = (step: string) => STAGES.find((s) => (s.steps as readonly string[]).includes(step)) ?? STAGES[0];
 
 /**
- * Stage of a screen for THIS application: a registered business verifies with Nafath only after the
- * Authorization choice (stage 7); a Freelancer verifies with Nafath right after the certificate (stage 3).
+ * Stage of a screen for THIS application: both kinds verify with Nafath after Review, in stage 7 — a
+ * registered business after the Authorization choice, a Freelancer after the certificate (also stage 7).
  */
 export const stageFor = (step: StepId, app?: Pick<Application, 'kyb'>) =>
-  step === 'nafath' && app?.kyb.kind === 'CR' ? STAGES[6] : stageOf(step);
+  (step === 'nafath' && app?.kyb.kind) || step === 'certificates' ? STAGES[6] : stageOf(step);
 
 /** The signer's own short journey (secure link; no OTP in Phase 1). */
 export const SIGNER_STAGES = [

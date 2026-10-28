@@ -42,7 +42,7 @@ export const DEPENDS_ON: Record<VerificationType, string> = {
 /** Order of paid calls per applicant type (backend). */
 export const CALL_ORDER = {
   CR: ['OTP', 'CR_DATA', 'PERSONS', 'MOBILE_MATCH', 'NAFATH'] as const,
-  FL_CERT: ['OTP', 'FL_CERTS', 'MOBILE_MATCH', 'NAFATH', 'IBAN'] as const
+  FL_CERT: ['OTP', 'IBAN', 'FL_CERTS', 'MOBILE_MATCH', 'NAFATH'] as const
 };
 
 export const costOf = (t: VerificationType | 'OTP') => COST_ASSUMPTIONS_SAR[t] ?? null;

@@ -42,7 +42,7 @@ describe('one journey model across prototype, boards, rules and docs', () => {
     expect(row(0)).toEqual(['Know Your Business', 'Identify', 'OTP', 'Application Submitted', 'Resume · CR', 'Resume · Freelancer', 'Application Progress', 'Active Account']);
     expect(row(1)).toEqual(['Registered Business', 'CR Verification', 'Business Details', 'Commercial Offer', 'Review', 'Authorization Choice', 'Nafath', 'Contract', 'Submitted']);
     expect(row(2)).toEqual(['Signer', 'Waiting for Authorization', 'Secure Link', 'Nafath', 'Read-only Review', 'Contract', 'Submitted', 'Delegated Signer · Phase 2']);
-    expect(row(3)).toEqual(['Freelancer', 'Certificate', 'Nafath', 'Business Details + IBAN', 'Commercial Offer', 'Review', 'Contract', 'Submitted']);
+    expect(row(3)).toEqual(['Freelancer', 'Business Details + IBAN', 'Commercial Offer', 'Review', 'Certificate', 'Nafath', 'Contract', 'Submitted']);
     const pills = BOARD_ARROWS.flatMap((a) => a.pills ?? []);
     expect(pills.filter((p) => p.kind === 'label').map((p) => p.text).sort()).toEqual(['Live', 'New', 'New Freelancer', 'Not Eligible', 'Phase 2', 'Resume CR', 'Resume Freelancer', 'SMS link', 'Self', 'Send to signer', 'Submitted']);
     expect(pills.filter((p) => p.kind === 'check').map((p) => p.text)).toEqual(['Mobile match', 'Mobile match']);

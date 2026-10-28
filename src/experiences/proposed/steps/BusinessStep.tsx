@@ -95,7 +95,7 @@ export function BusinessStep() {
                   <VerifyBadge state="verified">Account verified</VerifyBadge>
                   <dl className="mb-kv is-tight">
                     <div className="mb-kv-row"><dt>Bank</dt><dd>{b.bankName}</dd></div>
-                    <div className="mb-kv-row"><dt>Linked to</dt><dd>Your verified National ID and Freelancer Certificate</dd></div>
+                    <div className="mb-kv-row"><dt>Linked to</dt><dd>Your National ID (the Freelancer Certificate holder)</dd></div>
                   </dl>
                 </div>
               )}

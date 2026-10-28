@@ -13,7 +13,7 @@ const unavailableReason = (c: Certificate) =>
   c.status === 'expired' ? 'Expired' : c.issue === 'duplicate' ? 'Already linked to another Madfu account' : null;
 
 /**
- * Freelancer, right after the OTP and BEFORE Nafath: the certificates linked to the National ID —
+ * Freelancer, right after Review and BEFORE Nafath: the certificates linked to the National ID —
  * retrieved, never uploaded (one call; no certificate → no Nafath cost). The confirmed certificate's
  * activity becomes the verified category (pricing included). Locked once Nafath is verified.
  */
